@@ -159,121 +159,155 @@ const generateRandomSecret = () => {
 };
 
 const loginUser = async (req, res) => {
-  const { loginOrEmail, pass } = req.body;
-  console.log(loginOrEmail);
-  console.log(pass);
-  console.log(req.body);
+    const { loginOrEmail, pass } = req.body;
+    console.log(loginOrEmail);
+    console.log(pass);
+    console.log(req.body);
 
-  // Генерация ACCESS_TOKEN_SECRET и REFRESH_TOKEN_SECRET
-  global.ACCESS_TOKEN_SECRET = generateRandomSecret();
-  global.REFRESH_TOKEN_SECRET = generateRandomSecret();
+    // Генерация ACCESS_TOKEN_SECRET и REFRESH_TOKEN_SECRET
+    global.ACCESS_TOKEN_SECRET = generateRandomSecret();
+    global.REFRESH_TOKEN_SECRET = generateRandomSecret();
 
-  // Установка секретных ключей в переменные среды
-  global.REFRESH_TOKEN_EXPIRATION = 3600;
-  global.ACCESS_TOKEN_EXPIRATION = 180;
+    // Установка секретных ключей в переменные среды
+    global.REFRESH_TOKEN_EXPIRATION = 3600;
+    global.ACCESS_TOKEN_EXPIRATION = 180;
 
-  // Проверка является ли ввод email или логином
-  const isEmail = /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(loginOrEmail);
-  const checkQuery = isEmail 
-      ? 'SELECT * FROM newusers WHERE email = ?' 
-      : 'SELECT * FROM newusers WHERE login = ?';
+    // Проверка является ли ввод email или логином
+    const isEmail = /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(loginOrEmail);
+    const checkQuery = isEmail 
+        ? 'SELECT * FROM newusers WHERE email = ?' 
+        : 'SELECT * FROM newusers WHERE login = ?';
 
-  pool.getConnection((getConnectionErr, connection) => {
-      if (getConnectionErr) {
-          console.error('Ошибка при получении соединения из пула: ', getConnectionErr);
-          return res.status(500).json({ error: 'Ошибка сервера' });
-      }
+    pool.getConnection((getConnectionErr, connection) => {
+        if (getConnectionErr) {
+            console.error('Ошибка при получении соединения из пула: ', getConnectionErr);
+            return res.status(500).json({ error: 'Ошибка сервера' });
+        }
 
-      connection.query(checkQuery, [loginOrEmail], async (checkErr, checkResult) => {
-          connection.release();
-          if (checkErr) {
-              console.error('Ошибка при проверке пользователя: ', checkErr);
-              return res.status(500).json({ error: 'Ошибка сервера' });
-          }
+        connection.query(checkQuery, [loginOrEmail], async (checkErr, checkResult) => {
+            if (checkErr) {
+                connection.release();
+                console.error('Ошибка при проверке пользователя: ', checkErr);
+                return res.status(500).json({ error: 'Ошибка сервера' });
+            }
 
-          if (checkResult.length === 0) {
-              return res.status(401).json({ error: 'Пользователь с таким логином или email не найден' });
-          }
-          
-          const user = checkResult[0];
-          console.log(user);
-          console.log(checkResult);
-          const isPasswordValid = await comparePasswords(pass, user.password);
-          if (!isPasswordValid) {
-              return res.status(402).json({ error: 'Неверный пароль' });
-          }
+            if (checkResult.length === 0) {
+                connection.release();
+                return res.status(401).json({ error: 'Пользователь с таким логином или email не найден' });
+            }
+            
+            const user = checkResult[0];
+            console.log(user);
+            console.log(checkResult);
 
-          const refreshTokenQuery = 'SELECT refreshToken FROM UserToken WHERE user = ? AND expiresIn > NOW()';
-          const userIdentifier = user.login;
-          console.log("Пользователь " + userIdentifier);
-          pool.getConnection((refreshConnectionErr, refreshConnection) => {
-              if (refreshConnectionErr) {
-                  console.error('Ошибка при получении соединения для refresh token: ', refreshConnectionErr);
-                  console.log('Ошибка при получении соединения для refresh token: ', refreshConnectionErr);
-                  return res.status(500).json({ error: 'Ошибка сервера' });
-              }
+            // Проверяем, прошло ли уже 30 минут с последней неудачной попытки входа
+            const lastLoginAttempt = new Date(user.last_login_attempt).getTime();
+            const thirtyMinutesAgo = Date.now() - 30 * 60 * 1000;
+            if (user.login_attempts >= 5 && lastLoginAttempt > thirtyMinutesAgo) {
+                connection.release();
+                // Если количество неудачных попыток входа больше или равно 5 и последняя неудачная попытка была менее 30 минут назад
+                return res.status(401).json({ error: 'Слишком много неудачных попыток входа. Повторите попытку через 30 минут.' });
+            }
+            else if (lastLoginAttempt <= thirtyMinutesAgo) {
+                // Если прошло уже более 30 минут с последней неудачной попытки входа, обнуляем счетчик неудачных попыток
+                const resetAttemptsQuery = 'UPDATE newusers SET login_attempts = 0 WHERE login = ?';
+                connection.query(resetAttemptsQuery, [user.login], (resetErr) => {
+                    if (resetErr) {
+                        connection.release();
+                        console.error('Ошибка при сбросе счетчика попыток входа:', resetErr);
+                        return res.status(500).json({ error: 'Ошибка сервера' });
+                    }
+                });
+            }
 
-              refreshConnection.query(refreshTokenQuery, [userIdentifier], (tokenErr, tokenResult) => {
-                  refreshConnection.release();
-                  if (tokenErr) {
-                      console.error('Ошибка при проверке refresh token: ', tokenErr);
-                      console.log('Ошибка при проверке refresh token: ', tokenErr);
-                      return res.status(500).json({ error: 'Ошибка сервера' });
-                  }
+            const isPasswordValid = await comparePasswords(pass, user.password);
+            if (!isPasswordValid) {
+                const updateQuery = 'UPDATE newusers SET login_attempts = login_attempts + 1, last_login_attempt = NOW() WHERE login = ?';
+                connection.query(updateQuery, [user.login], (updateErr) => {
+                    connection.release();
+                    if (updateErr) {
+                        console.error('Error during updating login attempts:', updateErr);
+                        return res.status(500).json({ error: 'Server error' });
+                    }
+                    return res.status(401).json({ error: 'Неверный пароль' });
+                });
+                return; // Ensure no further execution in case of invalid password
+            }
 
-                  if (tokenResult.length > 0) {
-                      const refreshToken = tokenResult[0].refreshToken;
-                      const accessToken = generateAccessToken({ 
-                          username: user.login, 
-                          guestMode: false, 
-                          error: null 
-                      });
-                      return res.status(200).json({ 
-                          message: 'Вход в систему', 
-                          accessToken: accessToken, 
-                          refreshToken: refreshToken, 
-                          username: user.login 
-                      });
-                  } else {
-                      const accessToken = generateAccessToken({ 
-                          username: user.login, 
-                          guestMode: false, 
-                          error: null 
-                      });
-                      const refreshToken = generateRefreshToken({ 
-                          username: user.login, 
-                          guestMode: false, 
-                          error: null 
-                      });
+            // Обнуляем счетчик неудачных попыток входа после успешного входа
+            const resetAttemptsQueryAfterSuccess = 'UPDATE newusers SET login_attempts = 0 WHERE login = ?';
+            connection.query(resetAttemptsQueryAfterSuccess, [user.login], (resetErr) => {
+                if (resetErr) {
+                    connection.release();
+                    console.error('Ошибка при сбросе счетчика попыток входа после успешного входа:', resetErr);
+                    return res.status(500).json({ error: 'Ошибка сервера' });
+                }
 
-                      pool.getConnection((insertConnectionErr, insertConnection) => {
-                          if (insertConnectionErr) {
-                              console.error('Ошибка при получении соединения для сохранения refresh token: ', insertConnectionErr);
-                              console.log('Ошибка при получении соединения для сохранения refresh token: ', insertConnectionErr);
-                              return res.status(500).json({ error: 'Ошибка сервера' });
-                          }
+                const refreshTokenQuery = 'SELECT refreshToken FROM UserToken WHERE user = ? AND expiresIn > NOW()';
+                const userIdentifier = user.login;
+                console.log("Пользователь " + userIdentifier);
 
-                          const insertTokenQuery = 'INSERT INTO UserToken (user, refreshToken, expiresIn) VALUES (?, ?, NOW() + INTERVAL ? SECOND)';
-                          insertConnection.query(insertTokenQuery, [userIdentifier, refreshToken, global.REFRESH_TOKEN_EXPIRATION], (insertErr, insertResult) => {
-                              insertConnection.release();
-                              if (insertErr) {
-                                  console.error('Ошибка при сохранении refresh token в базе данных: ', insertErr);
-                                  console.log('Ошибка при сохранении refresh token в базе данных: ', insertErr);
-                                  return res.status(500).json({ error: 'Ошибка сервера' });
-                              }
-                              res.status(200).json({ 
-                                  message: 'Вход в систему', 
-                                  accessToken: accessToken, 
-                                  refreshToken: refreshToken, 
-                                  username: user.login 
-                              });
-                          });
-                      });
-                  }
-              });
-          });
-      });
-  });
+                connection.query(refreshTokenQuery, [userIdentifier], (tokenErr, tokenResult) => {
+                    connection.release();
+                    if (tokenErr) {
+                        console.error('Ошибка при проверке refresh token: ', tokenErr);
+                        console.log('Ошибка при проверке refresh token: ', tokenErr);
+                        return res.status(500).json({ error: 'Ошибка сервера' });
+                    }
+
+                    if (tokenResult.length > 0) {
+                        const refreshToken = tokenResult[0].refreshToken;
+                        const accessToken = generateAccessToken({ 
+                            username: user.login, 
+                            guestMode: false, 
+                            error: null 
+                        });
+                        return res.status(200).json({ 
+                            message: 'Вход в систему', 
+                            accessToken: accessToken, 
+                            refreshToken: refreshToken, 
+                            username: user.login 
+                        });
+                    } else {
+                        const accessToken = generateAccessToken({ 
+                            username: user.login, 
+                            guestMode: false, 
+                            error: null 
+                        });
+                        const refreshToken = generateRefreshToken({ 
+                            username: user.login, 
+                            guestMode: false, 
+                            error: null 
+                        });
+
+                        pool.getConnection((insertConnectionErr, insertConnection) => {
+                            if (insertConnectionErr) {
+                                console.error('Ошибка при получении соединения для сохранения refresh token: ', insertConnectionErr);
+                                console.log('Ошибка при получении соединения для сохранения refresh token: ', insertConnectionErr);
+                                return res.status(500).json({ error: 'Ошибка сервера' });
+                            }
+
+                            const insertTokenQuery = 'INSERT INTO UserToken (user, refreshToken, expiresIn) VALUES (?, ?, NOW() + INTERVAL ? SECOND)';
+                            insertConnection.query(insertTokenQuery, [userIdentifier, refreshToken, global.REFRESH_TOKEN_EXPIRATION], (insertErr) => {
+                                insertConnection.release();
+                                if (insertErr) {
+                                    console.error('Ошибка при сохранении refresh token в базе данных: ', insertErr);
+                                    console.log('Ошибка при сохранении refresh token в базе данных: ', insertErr);
+                                    return res.status(500).json({ error: 'Ошибка сервера' });
+                                }
+                                res.status(200).json({ 
+                                    message: 'Вход в систему', 
+                                    accessToken: accessToken, 
+                                    refreshToken: refreshToken, 
+                                    username: user.login 
+                                });
+                            });
+                        });
+                    }
+                });
+            });
+        });
+    });
 };
   
 // Обновление Access Token

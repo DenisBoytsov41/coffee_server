@@ -6,8 +6,10 @@ const {loginAdmin,registerUser, loginUser, logoutUser, refreshToken,
 const {getTovar, deleteItem,addItem,updateItem} = require('./routes/items');
 const {countBasket, updateBasket, getBasket, mergeBasket} = require('./routes/basket');
 const {updateLiked, getLiked, mergeLiked} = require('./routes/likes');
-const {getInfoUser,updateInfoUser, sendMailReset, resetPass} = require('./routes/user');
+const {getInfoUser,updateInfoUser, sendMailReset, resetPass, checkLoginExistence, 
+    comparePhoneNumberAndLogin, resetPassword} = require('./routes/user');
 const {getPaymentURL} = require('./routes/payment');
+const {sendPasswordResetSMS , checkResetCode} = require('./routes/twilio');
 
 router.post('/loginAdmin', loginAdmin);
 router.post('/checkUser', loginUser);
@@ -35,6 +37,12 @@ router.post('/refreshToken/:token', refreshToken);
 router.post('/deleteRefreshToken', deleteRefreshToken);
 router.post('/checkRefreshToken', checkRefreshToken);
 router.post('/updateTokensWithTheme', updateTokensWithTheme);
+router.post('/sendPasswordResetSMS', sendPasswordResetSMS);
+router.post('/checkLoginExistence', checkLoginExistence);
+router.post('/comparePhoneNumberAndLogin', comparePhoneNumberAndLogin);
+router.post('/checkResetCode', checkResetCode);
+router.post('/resetPassword', resetPassword);
+
 
 
 module.exports = router;
