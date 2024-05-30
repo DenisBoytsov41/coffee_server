@@ -7,7 +7,7 @@ const {getTovar, deleteItem,addItem,updateItem} = require('./routes/items');
 const {countBasket, updateBasket, getBasket, mergeBasket} = require('./routes/basket');
 const {updateLiked, getLiked, mergeLiked} = require('./routes/likes');
 const {getInfoUser,updateInfoUser, sendMailReset, resetPass, checkLoginExistence, 
-    comparePhoneNumberAndLogin, resetPassword} = require('./routes/user');
+    comparePhoneNumberAndLogin, resetPassword, changePassword} = require('./routes/user');
 const {getPaymentURL} = require('./routes/payment');
 const {sendPasswordResetSMS , checkResetCode} = require('./routes/twilio');
 
@@ -42,6 +42,7 @@ router.post('/checkLoginExistence', checkLoginExistence);
 router.post('/comparePhoneNumberAndLogin', comparePhoneNumberAndLogin);
 router.post('/checkResetCode', checkResetCode);
 router.post('/resetPassword', resetPassword);
+router.post('/changePassword', changePassword);
 
 
 

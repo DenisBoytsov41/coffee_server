@@ -474,6 +474,70 @@ function resetPass(req, res) {
         res.status(400).send('Недопустимый URL для сброса пароля');
     }
 }
+
+async function changePassword(req, res) {
+    const { refreshToken, oldPassword, newPassword, confirmPassword } = req.body;
+    console.log('В методе changePassword');
+    console.log(req.body);
+
+    if (!refreshToken || !oldPassword || !newPassword || !confirmPassword) {
+        console.log('Отсутствуют обязательные поля');
+        return res.status(400).json({ error: 'Отсутствуют обязательные поля' });
+    }
+
+    // Проверяем, совпадают ли новый пароль и подтверждение пароля
+    if (newPassword !== confirmPassword) {
+        console.log('Новый пароль и подтверждение пароля не совпадают');
+        return res.status(400).json({ error: 'Новый пароль и подтверждение пароля не совпадают' });
+    }
+
+    try {
+        // Находим логин пользователя по refreshToken в таблице UserToken
+        const selectTokenQuery = 'SELECT user FROM UserToken WHERE refreshToken = ?';
+        const [tokens] = await pool.promise().query(selectTokenQuery, [refreshToken]);
+        console.log(tokens);
+
+        if (tokens.length === 0 || !tokens[0].user) { 
+            console.log('Недействительный refreshToken');
+            return res.status(401).json({ error: 'Недействительный refreshToken' });
+        }
+
+        const user = tokens[0].user; // Получаем объект пользователя из tokens
+        const login = user; // Присваиваем его значение переменной login
+
+        // Получаем хешированный пароль пользователя из таблицы newusers по логину
+        const selectUserQuery = 'SELECT password FROM newusers WHERE login = ?';
+        const [users] = await pool.promise().query(selectUserQuery, [login]);
+        console.log(login);
+        console.log(users);
+
+        if (users.length === 0) {
+            console.log('Пользователь не найден');
+            return res.status(404).json({ error: 'Пользователь не найден' });
+        }
+        console.log(users[0].password);
+        // Сравниваем старый пароль с хешированным паролем в базе данных
+        const isMatch = await bcrypt.compare(oldPassword, users[0].password);
+        if (!isMatch) {
+            console.log('Неправильный старый пароль');
+            return res.status(401).json({ error: 'Неправильный старый пароль' });
+        }
+
+        // Хешируем новый пароль
+        const hashedNewPassword = await hashPassword(newPassword);
+        console.log(hashedNewPassword);
+
+        // Обновляем пароль пользователя в базе данных
+        const updateQuery = 'UPDATE newusers SET password = ? WHERE login = ?';
+        await pool.promise().query(updateQuery, [hashedNewPassword, login]);
+
+        res.json({ status: 'ok', message: 'Пароль успешно обновлен' });
+    } catch (error) {
+        console.log('Ошибка при смене пароля:', error);
+        console.error('Ошибка при смене пароля:', error);
+        res.status(500).send('Ошибка сервера');
+    }
+}
 const hashPassword = async (password) => {
   try {
     const saltRounds = 10;
@@ -492,5 +556,6 @@ module.exports = {
     resetPass,
     checkLoginExistence,
     comparePhoneNumberAndLogin,
-    resetPassword
+    resetPassword,
+    changePassword
 };
