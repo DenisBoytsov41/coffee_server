@@ -25,126 +25,216 @@ function getTovar(req, res) {
         });
     });
 }
+function checkAdminAccessJson(req, res) {
+    const { refreshToken } = req.body;
 
+    if (!refreshToken) {
+        return res.status(400).json({ error: 'Bad Request' });
+    }
 
-// Delete item method
-function deleteItem(req, res) {
-    // Параметризованный запрос для проверки аутентификации пользователя
-    const authQuery = 'SELECT COUNT(*) AS res FROM users WHERE id = ? AND mail = ? AND password = ?';
+    const tokenQuery = 'SELECT login FROM UserToken WHERE refreshToken = ?';
 
     pool.getConnection((err, connection) => {
         if (err) {
             console.error('Ошибка при получении соединения из пула:', err);
+            return res.status(500).json({ error: 'Ошибка сервера' });
+        }
+
+        connection.query(tokenQuery, [refreshToken], (err, tokenResult) => {
+            if (err) {
+                console.error('Ошибка при проверке токена пользователя:', err);
+                connection.release();
+                return res.status(500).json({ error: 'Ошибка сервера' });
+            }
+
+            if (tokenResult.length === 0) {
+                connection.release();
+                return res.status(403).json({ error: 'Недостаточно прав' });
+            }
+
+            const userLogin = tokenResult[0].login;
+
+            const accessQuery = 'SELECT access_level FROM user_access_rights WHERE login = ?';
+
+            connection.query(accessQuery, [userLogin], (err, accessResult) => {
+                connection.release();
+                if (err) {
+                    console.error('Ошибка при проверке уровня доступа пользователя:', err);
+                    return res.status(500).json({ error: 'Ошибка сервера' });
+                }
+
+                if (accessResult.length === 0 || accessResult[0].access_level !== 'admin') {
+                    return res.status(403).json({ error: 'Недостаточно прав' });
+                }
+
+                // Если все проверки пройдены успешно, отправляем OK-ответ
+                res.json({ status: "ok" });
+            });
+        });
+    });
+}
+
+
+function checkAdminAccess(refreshToken, callback) {
+    const tokenQuery = 'SELECT login FROM UserToken WHERE refreshToken = ?';
+
+    pool.getConnection((err, connection) => {
+        if (err) {
+            console.error('Ошибка при получении соединения из пула:', err);
+            return callback(err);
+        }
+
+        connection.query(tokenQuery, [refreshToken], (err, tokenResult) => {
+            if (err) {
+                console.error('Ошибка при проверке токена пользователя:', err);
+                connection.release();
+                return callback(err);
+            }
+
+            if (tokenResult.length === 0) {
+                connection.release();
+                return callback(null, false, 'Недостаточно прав');
+            }
+
+            const userLogin = tokenResult[0].login;
+
+            const accessQuery = 'SELECT access_level FROM user_access_rights WHERE login = ?';
+
+            connection.query(accessQuery, [userLogin], (err, accessResult) => {
+                connection.release();
+                if (err) {
+                    console.error('Ошибка при проверке уровня доступа пользователя:', err);
+                    return callback(err);
+                }
+
+                if (accessResult.length === 0 || accessResult[0].access_level !== 'admin') {
+                    return callback(null, false, 'Недостаточно прав');
+                }
+
+                return callback(null, true);
+            });
+        });
+    });
+}
+
+
+function deleteItem(req, res) {
+    const { refreshToken, id } = req.body;
+
+    if (!refreshToken || !id) {
+        return res.status(400).send('Bad Request');
+    }
+
+    checkAdminAccess(refreshToken, (err, isAdmin, errorMsg) => {
+        if (err) {
             return res.status(500).send('Ошибка сервера');
         }
 
-        connection.query(authQuery, [0, req.body.mail.toLowerCase(), md5(req.body.pass)], (err, result) => {
+        if (!isAdmin) {
+            return res.status(403).send(errorMsg);
+        }
+
+        const deleteQuery = 'DELETE FROM Tovar WHERE id = ?';
+
+        pool.getConnection((err, connection) => {
             if (err) {
-                console.error('Ошибка при проверке аутентификации пользователя:', err);
-                connection.release();
+                console.error('Ошибка при получении соединения из пула:', err);
                 return res.status(500).send('Ошибка сервера');
             }
 
-            if (result[0].res) {
-                // Параметризованный запрос для удаления элемента
-                const deleteQuery = 'DELETE FROM Tovar WHERE id = ?';
-                connection.query(deleteQuery, [req.body.id], (err) => {
-                    connection.release();
-                    if (err) {
-                        console.error('Ошибка при удалении элемента:', err);
-                        return res.status(500).send('Ошибка сервера');
-                    }
-                    res.json({ status: "ok" });
-                });
-            } else {
+            connection.query(deleteQuery, [id], (err) => {
                 connection.release();
-                res.status(403).send('Unauthorized');
-            }
+                if (err) {
+                    console.error('Ошибка при удалении элемента:', err);
+                    return res.status(500).send('Ошибка сервера');
+                }
+                res.json({ status: "ok" });
+            });
         });
     });
 }
 
 // Add item method
 function addItem(req, res) {
-    // Параметризованный запрос для проверки аутентификации пользователя
-    const authQuery = 'SELECT COUNT(*) AS res FROM users WHERE id = ? AND mail = ? AND password = ?';
+    const { refreshToken, name, opisanie, price, optprice, PhotoPath } = req.body;
 
-    pool.getConnection((err, connection) => {
+    if (!refreshToken || !name || !opisanie || !price || !optprice) {
+        return res.status(400).send('Bad Request');
+    }
+
+    checkAdminAccess(refreshToken, (err, isAdmin, errorMsg) => {
         if (err) {
-            console.error('Ошибка при получении соединения из пула:', err);
             return res.status(500).send('Ошибка сервера');
         }
 
-        connection.query(authQuery, [0, req.body.mail.toLowerCase(), md5(req.body.pass)], (err, result) => {
+        if (!isAdmin) {
+            return res.status(403).send(errorMsg);
+        }
+
+        pool.getConnection((err, connection) => {
             if (err) {
-                console.error('Ошибка при проверке аутентификации пользователя:', err);
-                connection.release();
+                console.error('Ошибка при получении соединения из пула:', err);
                 return res.status(500).send('Ошибка сервера');
             }
 
-            if (result[0].res) {
-                // Параметризованный запрос для получения следующего доступного ID
-                const getNextIdQuery = 'SELECT MAX(id) + 1 AS ID FROM Tovar';
-                connection.query(getNextIdQuery, (err, result) => {
+            // Параметризованный запрос для получения следующего доступного ID
+            const getNextIdQuery = 'SELECT MAX(id) + 1 AS ID FROM Tovar';
+            connection.query(getNextIdQuery, (err, result) => {
+                if (err) {
+                    console.error('Ошибка при получении следующего доступного ID:', err);
+                    connection.release();
+                    return res.status(500).send('Ошибка сервера');
+                }
+
+                const nextId = result[0].ID || 1; // Если в результате нет ID, используем 1
+                // Параметризованный запрос для добавления элемента
+                const addItemQuery = 'INSERT INTO Tovar (id, name, opisanie, price, optprice, PhotoPath) VALUES (?, ?, ?, ?, ?, ?)';
+                connection.query(addItemQuery, [nextId, name, opisanie, price, optprice, PhotoPath || ''], (err) => {
+                    connection.release();
                     if (err) {
-                        console.error('Ошибка при получении следующего доступного ID:', err);
-                        connection.release();
+                        console.error('Ошибка при добавлении элемента:', err);
                         return res.status(500).send('Ошибка сервера');
                     }
-
-                    const nextId = result[0].ID || 1; // Если в результате нет ID, используем 1
-                    // Параметризованный запрос для добавления элемента
-                    const addItemQuery = 'INSERT INTO Tovar (id, name, opisanie, price, optprice) VALUES (?, "", "", 0, 0)';
-                    connection.query(addItemQuery, [nextId], (err) => {
-                        connection.release();
-                        if (err) {
-                            console.error('Ошибка при добавлении элемента:', err);
-                            return res.status(500).send('Ошибка сервера');
-                        }
-                        res.json({ status: "ok" });
-                    });
+                    res.json({ status: "ok" });
                 });
-            } else {
-                connection.release();
-                res.status(403).send('Unauthorized');
-            }
+            });
         });
     });
 }
 
 // Update item method
 function updateItem(req, res) {
-    // Параметризованный запрос для проверки аутентификации пользователя
-    const authQuery = 'SELECT COUNT(*) AS res FROM users WHERE id = ? AND mail = ? AND password = ?';
+    const { refreshToken, id, name, opisanie, price, optprice, PhotoPath } = req.body;
 
-    pool.getConnection((err, connection) => {
+    if (!refreshToken || !id || !name || !opisanie || !price || !optprice) {
+        return res.status(400).send('Bad Request');
+    }
+
+    checkAdminAccess(refreshToken, (err, isAdmin, errorMsg) => {
         if (err) {
-            console.error('Ошибка при получении соединения из пула:', err);
             return res.status(500).send('Ошибка сервера');
         }
 
-        connection.query(authQuery, [0, req.body.mail.toLowerCase(), md5(req.body.pass)], (err, result) => {
+        if (!isAdmin) {
+            return res.status(403).send(errorMsg);
+        }
+
+        pool.getConnection((err, connection) => {
             if (err) {
-                console.error('Ошибка при проверке аутентификации пользователя:', err);
-                connection.release();
+                console.error('Ошибка при получении соединения из пула:', err);
                 return res.status(500).send('Ошибка сервера');
             }
 
-            if (result[0].res) {
-                // Параметризованный запрос для обновления элемента
-                const updateQuery = 'UPDATE Tovar SET name = ?, opisanie = ?, price = ?, optprice = ? WHERE id = ?';
-                connection.query(updateQuery, [req.body.name, req.body.opisanie, req.body.price, req.body.optprice, req.body.id], (err) => {
-                    connection.release();
-                    if (err) {
-                        console.error('Ошибка при обновлении элемента:', err);
-                        return res.status(500).send('Ошибка сервера');
-                    }
-                    res.json({ status: "ok" });
-                });
-            } else {
+            // Параметризованный запрос для обновления элемента
+            const updateQuery = 'UPDATE Tovar SET name = ?, opisanie = ?, price = ?, optprice = ?, PhotoPath = ? WHERE id = ?';
+            connection.query(updateQuery, [name, opisanie, price, optprice, PhotoPath || '', id], (err) => {
                 connection.release();
-                res.status(403).send('Unauthorized');
-            }
+                if (err) {
+                    console.error('Ошибка при обновлении элемента:', err);
+                    return res.status(500).send('Ошибка сервера');
+                }
+                res.json({ status: "ok" });
+            });
         });
     });
 }
@@ -155,5 +245,6 @@ module.exports = {
     getTovar,
     deleteItem,
     addItem,
-    updateItem
+    updateItem,
+    checkAdminAccessJson
 };

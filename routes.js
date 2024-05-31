@@ -3,13 +3,14 @@ const router = express.Router();
 const {loginAdmin,registerUser, loginUser, logoutUser, refreshToken,
     deleteRefreshToken, checkRefreshToken, updateTokensWithTheme, getUserByRefreshTokenHandler
  } = require('./routes/auth');
-const {getTovar, deleteItem,addItem,updateItem} = require('./routes/items');
+const {getTovar, deleteItem,addItem,updateItem, checkAdminAccessJson} = require('./routes/items');
 const {countBasket, updateBasket, getBasket, mergeBasket} = require('./routes/basket');
 const {updateLiked, getLiked, mergeLiked} = require('./routes/likes');
 const {getInfoUser,updateInfoUser, sendMailReset, resetPass, checkLoginExistence, 
     comparePhoneNumberAndLogin, resetPassword, changePassword} = require('./routes/user');
 const {getPaymentURL} = require('./routes/payment');
 const {sendPasswordResetSMS , checkResetCode} = require('./routes/twilio');
+const {addUserAdmin, updateUserAdmin, deleteAdminUser, checkAdminCredentials} = require('./routes/admins');
 
 router.post('/loginAdmin', loginAdmin);
 router.post('/checkUser', loginUser);
@@ -43,7 +44,12 @@ router.post('/comparePhoneNumberAndLogin', comparePhoneNumberAndLogin);
 router.post('/checkResetCode', checkResetCode);
 router.post('/resetPassword', resetPassword);
 router.post('/changePassword', changePassword);
+router.post('/checkAdminAccessJson', checkAdminAccessJson);
 
+router.post('/addUserAdmin', addUserAdmin);
+router.post('/updateUserAdmin', updateUserAdmin);
+router.post('/deleteAdminUser', deleteAdminUser);
+router.post('/checkAdminCredentials', checkAdminCredentials);
 
 
 module.exports = router;
