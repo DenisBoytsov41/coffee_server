@@ -32,7 +32,7 @@ function checkAdminAccessJson(req, res) {
         return res.status(400).json({ error: 'Bad Request' });
     }
 
-    const tokenQuery = 'SELECT login FROM UserToken WHERE refreshToken = ?';
+    const tokenQuery = 'SELECT user FROM UserToken WHERE refreshToken = ?';
 
     pool.getConnection((err, connection) => {
         if (err) {
@@ -52,7 +52,7 @@ function checkAdminAccessJson(req, res) {
                 return res.status(403).json({ error: 'Недостаточно прав' });
             }
 
-            const userLogin = tokenResult[0].login;
+            const userLogin = tokenResult[0].user;
 
             const accessQuery = 'SELECT access_level FROM user_access_rights WHERE login = ?';
 
@@ -76,7 +76,7 @@ function checkAdminAccessJson(req, res) {
 
 
 function checkAdminAccess(refreshToken, callback) {
-    const tokenQuery = 'SELECT login FROM UserToken WHERE refreshToken = ?';
+    const tokenQuery = 'SELECT user FROM UserToken WHERE refreshToken = ?';
 
     pool.getConnection((err, connection) => {
         if (err) {
@@ -96,7 +96,7 @@ function checkAdminAccess(refreshToken, callback) {
                 return callback(null, false, 'Недостаточно прав');
             }
 
-            const userLogin = tokenResult[0].login;
+            const userLogin = tokenResult[0].user;
 
             const accessQuery = 'SELECT access_level FROM user_access_rights WHERE login = ?';
 
