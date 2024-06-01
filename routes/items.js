@@ -158,7 +158,7 @@ function deleteItem(req, res) {
 function addItem(req, res) {
     const { refreshToken, name, opisanie, price, optprice, PhotoPath } = req.body;
 
-    if (!refreshToken || !name || !opisanie || !price || !optprice) {
+    if (!refreshToken) {
         return res.status(400).send('Bad Request');
     }
 

@@ -10,7 +10,8 @@ const {getInfoUser,updateInfoUser, sendMailReset, resetPass, checkLoginExistence
     comparePhoneNumberAndLogin, resetPassword, changePassword} = require('./routes/user');
 const {getPaymentURL} = require('./routes/payment');
 const {sendPasswordResetSMS , checkResetCode} = require('./routes/twilio');
-const {addUserAdmin, updateUserAdmin, deleteAdminUser, checkAdminCredentials} = require('./routes/admins');
+const {addUserAdmin, updateUserAdmin, deleteAdminUser, checkAdminCredentials,
+     updateNewUserAdminInfo, deleteNewUser, checkAdminCredentialsRefreshToken} = require('./routes/admins');
 
 router.post('/loginAdmin', loginAdmin);
 router.post('/checkUser', loginUser);
@@ -50,6 +51,9 @@ router.post('/addUserAdmin', addUserAdmin);
 router.post('/updateUserAdmin', updateUserAdmin);
 router.post('/deleteAdminUser', deleteAdminUser);
 router.post('/checkAdminCredentials', checkAdminCredentials);
+router.post('/updateNewUserAdminInfo', updateNewUserAdminInfo);
+router.post('/deleteNewUser', deleteNewUser);
+router.post('/checkAdminCredentialsRefreshToken', checkAdminCredentialsRefreshToken);
 
 
 module.exports = router;
