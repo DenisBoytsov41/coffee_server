@@ -278,14 +278,27 @@ function updateInfoUser(req, res) {
               }
   
               connection.query(updateQuery, values, (err, result) => {
-                connection.release();
-  
                 if (err) {
                   console.error('Ошибка при запросе user info:', err);
+                  connection.release();
                   return res.status(500).send('Ошибка сервера');
                 }
   
-                res.json({ status: 'ok' });
+                // Отправляем сообщение после успешного обновления данных пользователя
+                const theme = 'Обновление данных профиля';
+                const text = 'Ваши данные профиля были успешно обновлены.';
+                const textHtml = '<p>Ваши данные профиля были успешно обновлены.</p>';
+  
+                sendMail(user.email, theme, text, textHtml)
+                  .then(() => {
+                    connection.release();
+                    res.json({ status: 'ok' });
+                  })
+                  .catch((error) => {
+                    console.error('Ошибка при отправке электронной почты:', error);
+                    connection.release();
+                    res.status(500).send('Ошибка сервера');
+                  });
               });
             });
           });
@@ -293,6 +306,7 @@ function updateInfoUser(req, res) {
       });
     });
   }
+
 
 function checkLoginExistence(req, res) {
   const login = req.body.login; // Получаем логин из тела запроса

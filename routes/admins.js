@@ -1,7 +1,11 @@
 //const connsql = require('../database');
 const pool = require('../pool');
 const bcrypt = require('bcrypt');
+const {sendMail} = require('../mailer');
 const { validateSmen } = require('../validationsmen');
+
+const nameRegex = /^[а-яА-Яa-zA-Z]+(?:[-\s][а-яА-Яa-zA-Z]+)?$/u;
+const phoneRegex = /^(\+7|8)?[-. ]?\(?\d{3}\)?[-. ]?\d{3}[-. ]?\d{2}[-. ]?\d{2}$/;
 
 function checkAdminCredentials(req, res) {
     const { login, password, refreshToken } = req.body;
@@ -125,6 +129,49 @@ function checkAdminCredentialsRefreshToken(req, res) {
         });
     });
 }
+
+function checkAdminAccess(refreshToken, callback) {
+    const tokenQuery = 'SELECT user FROM UserToken WHERE refreshToken = ?';
+
+    pool.getConnection((err, connection) => {
+        if (err) {
+            console.error('Ошибка при получении соединения из пула:', err);
+            return callback(err);
+        }
+
+        connection.query(tokenQuery, [refreshToken], (err, tokenResult) => {
+            if (err) {
+                console.error('Ошибка при проверке токена пользователя:', err);
+                connection.release();
+                return callback(err);
+            }
+
+            if (tokenResult.length === 0) {
+                connection.release();
+                return callback(null, false, 'Недостаточно прав');
+            }
+
+            const userLogin = tokenResult[0].user;
+
+            const accessQuery = 'SELECT access_level FROM user_access_rights WHERE login = ?';
+
+            connection.query(accessQuery, [userLogin], (err, accessResult) => {
+                connection.release();
+                if (err) {
+                    console.error('Ошибка при проверке уровня доступа пользователя:', err);
+                    return callback(err);
+                }
+
+                if (accessResult.length === 0 || accessResult[0].access_level !== 'admin') {
+                    return callback(null, false, 'Недостаточно прав');
+                }
+
+                return callback(null, true, null, userLogin);
+            });
+        });
+    });
+}
+
 
 async function addUserAdmin(req, res) {
     const { login, password } = req.body;
@@ -261,7 +308,7 @@ function updateNewUserAdminInfo(req, res) {
         return res.status(400).json({ error: 'Потеря refreshToken' });
     }
 
-    const tokenQuery = 'SELECT login FROM UserToken WHERE refreshToken = ?';
+    const tokenQuery = 'SELECT user FROM UserToken WHERE refreshToken = ?';
 
     pool.getConnection((err, connection) => {
         if (err) {
@@ -278,174 +325,239 @@ function updateNewUserAdminInfo(req, res) {
             }
 
             if (tokenResult.length === 0) {
-                return res.status(403).json({ error: 'Недостаточно прав' });
+                return res.status(403).json({ error: 'Нет данных' });
             }
 
-            const login = tokenResult[0].login;
-            updateNewUserDetails({ firstname, lastname, email, gender, phone, login }, res);
+            const login = tokenResult[0].user;
+            updateNewUserDetails({ refreshToken, firstname, lastname, email, gender, phone, login }, res);
         });
     });
 }
 
-function updateNewUserDetails({ firstname, lastname, email, gender, phone, login }, res) {
-    const userQuery = 'SELECT * FROM newusers WHERE login = ?';
+async function updateNewUserDetails(req, res) {
+    console.log(req);
+    const { refreshToken, firstname, lastname, email, gender, phone, login } = req;
 
-    pool.getConnection((err, connection) => {
+    checkAdminAccess(refreshToken, async (err) => {
         if (err) {
-            console.error('Ошибка при получении соединения из пула:', err);
-            return res.status(500).send('Ошибка сервера');
+            return res.status(403).send('Access denied');
         }
 
-        connection.query(userQuery, [login], (err, result) => {
+        if (gender && gender !== 'Мужской' && gender !== 'Женский') {
+            return res.status(400).send('Неверный пол');
+        }
+
+        if (firstname && (firstname.length < 2 || !nameRegex.test(firstname))) {
+            return res.status(400).send('Неверный firstname');
+        }
+
+        if (lastname && (lastname.length < 2 || !nameRegex.test(lastname))) {
+            return res.status(400).send('Неверный lastname');
+        }
+
+        if (phone && !phoneRegex.test(phone)) {
+            return res.status(400).send('Неверный номер телефона');
+        }
+
+        const userQuery = 'SELECT * FROM newusers WHERE login = ?';
+
+        pool.getConnection((err, connection) => {
             if (err) {
-                console.error('Ошибка при запросе newusers:', err);
-                connection.release();
+                console.error('Ошибка при получении соединения из пула:', err);
                 return res.status(500).send('Ошибка сервера');
             }
 
-            if (result.length === 0) {
-                connection.release();
-                return res.status(404).send('Пользователь не найден');
-            }
-
-            const user = result[0];
-            let updates = [];
-            let values = [];
-
-            if (firstname && firstname !== user.firstname) {
-                updates.push('firstname = ?');
-                values.push(firstname);
-            }
-            if (lastname && lastname !== user.lastname) {
-                updates.push('lastname = ?');
-                values.push(lastname);
-            }
-            if (email && email.toLowerCase() !== user.email) {
-                updates.push('email = ?');
-                values.push(email.toLowerCase());
-            }
-            if (gender && gender !== user.gender) {
-                updates.push('gender = ?');
-                values.push(gender);
-            }
-            if (phone && phone !== user.phone) {
-                updates.push('phone = ?');
-                values.push(phone);
-            }
-
-            if (updates.length === 0) {
-                connection.release();
-                return res.json({ status: 'Успешная смена данных' });
-            }
-
-            values.push(login);
-
-            const updateQuery = `UPDATE newusers SET ${updates.join(', ')} WHERE login = ?`;
-
-            connection.query(updateQuery, values, (err, result) => {
-                connection.release();
-
+            connection.query(userQuery, [login], async (err, result) => {
                 if (err) {
-                    console.error('Ошибка при обновлении информации пользователя:', err);
+                    console.error('Ошибка при запросе newusers:', err);
+                    connection.release();
                     return res.status(500).send('Ошибка сервера');
                 }
 
-                res.json({ status: 'ok' });
+                if (result.length === 0) {
+                    connection.release();
+                    return res.status(404).send('Пользователь не найден');
+                }
+
+                const user = result[0];
+                let updates = [];
+                let values = [];
+
+                if (firstname && firstname !== user.firstname) {
+                    updates.push('firstname = ?');
+                    values.push(firstname);
+                }
+                if (lastname && lastname !== user.lastname) {
+                    updates.push('lastname = ?');
+                    values.push(lastname);
+                }
+                if (gender && gender !== user.gender) {
+                    updates.push('gender = ?');
+                    values.push(gender);
+                }
+                if (phone && phone !== user.phone) {
+                    updates.push('phone = ?');
+                    values.push(phone);
+                }
+
+                if (updates.length === 0) {
+                    connection.release();
+                    return res.json({ status: 'Успешная смена данных' });
+                }
+
+                values.push(login);
+
+                const updateQuery = `UPDATE newusers SET ${updates.join(', ')} WHERE login = ?`;
+
+                connection.query(updateQuery, values, async (err, result) => {
+                    connection.release();
+
+                    if (err) {
+                        console.error('Ошибка при обновлении информации пользователя:', err);
+                        return res.status(500).send('Ошибка сервера');
+                    }
+
+                    // Успешное обновление данных, отправляем уведомление пользователю
+                    const theme = 'Уведомление о смене данных';
+                    const text = 'Ваши данные были успешно обновлены.';
+                    const textHtml = '<p>Ваши данные были успешно обновлены.</p>';
+
+                    try {
+                        await sendMail(email, theme, text, textHtml);
+                        res.json({ status: 'ok' });
+                    } catch (error) {
+                        console.error('Ошибка при отправке уведомления:', error);
+                        res.status(500).send('Ошибка сервера');
+                    }
+                });
             });
         });
     });
 }
 
-function deleteNewUser(req, res) {
-    const { refreshToken } = req.body;
 
-    if (!refreshToken) {
-        return res.status(400).json({ error: 'Потеря refreshToken' });
+
+function deleteNewUser(req, res) {
+    const { refreshToken, loginToDelete } = req.body;
+
+    if (!refreshToken || !loginToDelete) {
+        return res.status(400).json({ error: 'Потеря refreshToken или loginToDelete' });
     }
 
-    const tokenQuery = 'SELECT login FROM UserToken WHERE refreshToken = ?';
-
-    pool.getConnection((err, connection) => {
+    checkAdminAccess(refreshToken, (err, isAdmin, errorMsg, currentAdminLogin) => {
         if (err) {
-            console.error('Ошибка при получении соединения из пула:', err);
             return res.status(500).json({ error: 'Ошибка сервера' });
         }
 
-        connection.beginTransaction((err) => {
+        if (!isAdmin) {
+            return res.status(403).json({ error: errorMsg });
+        }
+
+        if (loginToDelete === currentAdminLogin) {
+            return res.status(403).json({ error: 'Нельзя удалить самого себя' });
+        }
+
+        pool.getConnection((err, connection) => {
             if (err) {
-                console.error('Ошибка при начале транзакции:', err);
-                connection.release();
+                console.error('Ошибка при получении соединения из пула:', err);
                 return res.status(500).json({ error: 'Ошибка сервера' });
             }
 
-            connection.query(tokenQuery, [refreshToken], (err, tokenResult) => {
+            connection.beginTransaction((err) => {
                 if (err) {
-                    console.error('Ошибка при проверке токена пользователя:', err);
-                    return connection.rollback(() => {
-                        connection.release();
-                        return res.status(500).json({ error: 'Ошибка сервера' });
-                    });
-                }
-
-                if (tokenResult.length === 0) {
+                    console.error('Ошибка при начале транзакции:', err);
                     connection.release();
-                    return res.status(403).json({ error: 'Недостаточно прав' });
+                    return res.status(500).json({ error: 'Ошибка сервера' });
                 }
 
-                const login = tokenResult[0].login;
-
-                const deleteUserItemsQuery = 'DELETE FROM usersItems WHERE user = ?';
-                const deleteUserTokensQuery = 'DELETE FROM UserToken WHERE login = ?';
+                const getUserEmailQuery = 'SELECT email FROM newusers WHERE login = ?';
+                const deleteUserItemsQuery = 'DELETE FROM usersItems WHERE login = ?';
+                const deleteUserTokensQuery = 'DELETE FROM UserToken WHERE user = ?';
                 const deleteUserAccessRightsQuery = 'DELETE FROM user_access_rights WHERE login = ?';
                 const deleteUserQuery = 'DELETE FROM newusers WHERE login = ?';
 
-                connection.query(deleteUserItemsQuery, [login], (err) => {
+                connection.query(getUserEmailQuery, [loginToDelete], (err, result) => {
                     if (err) {
-                        console.error('Ошибка при удалении items пользователя:', err);
+                        console.error('Ошибка при получении электронной почты пользователя:', err);
                         return connection.rollback(() => {
                             connection.release();
                             return res.status(500).json({ error: 'Ошибка сервера' });
                         });
                     }
 
-                    connection.query(deleteUserTokensQuery, [login], (err) => {
+                    if (result.length === 0) {
+                        console.error('Пользователь не найден');
+                        return connection.rollback(() => {
+                            connection.release();
+                            return res.status(404).json({ error: 'Пользователь не найден' });
+                        });
+                    }
+
+                    const userEmail = result[0].email;
+
+                    connection.query(deleteUserItemsQuery, [loginToDelete], (err) => {
                         if (err) {
-                            console.error('Ошибка при удалении токенов пользователя:', err);
+                            console.error('Ошибка при удалении items пользователя:', err);
                             return connection.rollback(() => {
                                 connection.release();
                                 return res.status(500).json({ error: 'Ошибка сервера' });
                             });
                         }
 
-                        connection.query(deleteUserAccessRightsQuery, [login], (err) => {
+                        connection.query(deleteUserTokensQuery, [loginToDelete], (err) => {
                             if (err) {
-                                console.error('Ошибка при удалении прав доступа пользователя:', err);
+                                console.error('Ошибка при удалении токенов пользователя:', err);
                                 return connection.rollback(() => {
                                     connection.release();
                                     return res.status(500).json({ error: 'Ошибка сервера' });
                                 });
                             }
 
-                            connection.query(deleteUserQuery, [login], (err) => {
+                            connection.query(deleteUserAccessRightsQuery, [loginToDelete], (err) => {
                                 if (err) {
-                                    console.error('Ошибка при удалении пользователя:', err);
+                                    console.error('Ошибка при удалении прав доступа пользователя:', err);
                                     return connection.rollback(() => {
                                         connection.release();
                                         return res.status(500).json({ error: 'Ошибка сервера' });
                                     });
                                 }
 
-                                connection.commit((err) => {
+                                connection.query(deleteUserQuery, [loginToDelete], (err) => {
                                     if (err) {
-                                        console.error('Ошибка при коммите транзакции:', err);
+                                        console.error('Ошибка при удалении пользователя:', err);
                                         return connection.rollback(() => {
                                             connection.release();
                                             return res.status(500).json({ error: 'Ошибка сервера' });
                                         });
                                     }
 
-                                    connection.release();
-                                    return res.json({ status: 'ok' });
+                                    // Если удаление прошло успешно, отправляем сообщение
+                                    const theme = 'Пользователь успешно удален';
+                                    const text = 'Ваш аккаунт был успешно удален.';
+                                    const textHtml = '<p>Ваш аккаунт был успешно удален.</p>';
+
+                                    sendMail(userEmail, theme, text, textHtml)
+                                        .then(() => {
+                                            connection.commit((err) => {
+                                                if (err) {
+                                                    console.error('Ошибка при коммите транзакции:', err);
+                                                    return connection.rollback(() => {
+                                                        connection.release();
+                                                        return res.status(500).json({ error: 'Ошибка сервера' });
+                                                    });
+                                                }
+
+                                                connection.release();
+                                                return res.json({ status: 'ok' }); // Отправка успешного ответа
+                                            });
+                                        })
+                                        .catch((error) => {
+                                            console.error('Ошибка при отправке электронной почты:', error);
+                                            return connection.rollback(() => {
+                                                connection.release();
+                                                return res.status(500).json({ error: 'Ошибка сервера' });
+                                            });
+                                        });
                                 });
                             });
                         });
