@@ -8,6 +8,139 @@ const {validatePassword} = require('../validatePassword');
 const uuid = require('uuid');
 const bcrypt = require('bcrypt');
 
+function checkAdminAccess(refreshToken, callback) {
+    const tokenQuery = 'SELECT user FROM UserToken WHERE refreshToken = ?';
+
+    pool.getConnection((err, connection) => {
+        if (err) {
+            console.error('Ошибка при получении соединения из пула:', err);
+            return callback(err);
+        }
+
+        connection.query(tokenQuery, [refreshToken], (err, tokenResult) => {
+            if (err) {
+                console.error('Ошибка при проверке токена пользователя:', err);
+                connection.release();
+                return callback(err);
+            }
+
+            if (tokenResult.length === 0) {
+                connection.release();
+                return callback(null, false, 'Недостаточно прав');
+            }
+
+            const userLogin = tokenResult[0].user;
+
+            const accessQuery = 'SELECT access_level FROM user_access_rights WHERE login = ?';
+
+            connection.query(accessQuery, [userLogin], (err, accessResult) => {
+                connection.release();
+                if (err) {
+                    console.error('Ошибка при проверке уровня доступа пользователя:', err);
+                    return callback(err);
+                }
+
+                if (accessResult.length === 0 || accessResult[0].access_level !== 'admin') {
+                    return callback(null, false, 'Недостаточно прав');
+                }
+
+                return callback(null, true, null, userLogin);
+            });
+        });
+    });
+}
+
+
+function getNewUsers(req, res) {
+    console.log(req.body);
+    const query = 'SELECT * FROM newusers';
+
+    pool.getConnection((err, connection) => {
+        if (err) {
+            console.error('Ошибка при получении соединения из пула:', err);
+            return res.status(500).send('Ошибка сервера');
+        }
+
+        connection.query(query, (err, result) => {
+            connection.release();
+            if (err) {
+                console.error('Ошибка при выполнении запроса к базе данных:', err);
+                return res.status(500).send('Ошибка сервера');
+            }
+
+            console.log("Данные о пользователях получены успешно");
+            res.json(result);
+        });
+    });
+}
+
+function getUserAccessRights(req, res) {
+    console.log(req.body);
+    const query = 'SELECT * FROM user_access_rights';
+
+    pool.getConnection((err, connection) => {
+        if (err) {
+            console.error('Ошибка при получении соединения из пула:', err);
+            return res.status(500).send('Ошибка сервера');
+        }
+
+        connection.query(query, (err, result) => {
+            connection.release();
+            if (err) {
+                console.error('Ошибка при выполнении запроса к базе данных:', err);
+                return res.status(500).send('Ошибка сервера');
+            }
+
+            console.log("Данные о правах доступа пользователей получены успешно");
+            res.json(result);
+        });
+    });
+}
+function updateUserAccessLevel(req, res) {
+    const { refreshToken, login, access_level } = req.body;
+
+    if (!refreshToken || !login || !access_level) {
+        return res.status(400).send('Bad Request');
+    }
+
+    if (access_level !== 'admin' && access_level !== 'member') {
+        return res.status(400).send('Неверный уровень доступа');
+    }
+
+    checkAdminAccess(refreshToken, (err, isAdmin, errorMsg, currentAdminLogin) => {
+        if (err) {
+            return res.status(500).send('Ошибка сервера');
+        }
+
+        if (!isAdmin) {
+            return res.status(403).send(errorMsg);
+        }
+
+        if (login === currentAdminLogin) {
+            return res.status(403).send('Нельзя изменить собственный уровень доступа');
+        }
+
+        pool.getConnection((err, connection) => {
+            if (err) {
+                console.error('Ошибка при получении соединения из пула:', err);
+                return res.status(500).send('Ошибка сервера');
+            }
+
+            // Параметризованный запрос для обновления уровня доступа
+            const updateQuery = 'UPDATE user_access_rights SET access_level = ? WHERE login = ?';
+            connection.query(updateQuery, [access_level, login], (err) => {
+                connection.release();
+                if (err) {
+                    console.error('Ошибка при обновлении уровня доступа:', err);
+                    return res.status(500).send('Ошибка сервера');
+                }
+                res.json({ status: "ok" });
+            });
+        });
+    });
+}
+
+
 // Получить информацию о пользователе
 function getInfoUser(req, res) {
   const { loginOrEmail, pass } = req.body;
@@ -557,5 +690,8 @@ module.exports = {
     checkLoginExistence,
     comparePhoneNumberAndLogin,
     resetPassword,
-    changePassword
+    changePassword,
+    getNewUsers,
+    getUserAccessRights,
+    updateUserAccessLevel
 };

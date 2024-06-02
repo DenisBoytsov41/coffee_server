@@ -7,7 +7,8 @@ const {getTovar, deleteItem,addItem,updateItem, checkAdminAccessJson} = require(
 const {countBasket, updateBasket, getBasket, mergeBasket} = require('./routes/basket');
 const {updateLiked, getLiked, mergeLiked} = require('./routes/likes');
 const {getInfoUser,updateInfoUser, sendMailReset, resetPass, checkLoginExistence, 
-    comparePhoneNumberAndLogin, resetPassword, changePassword} = require('./routes/user');
+    comparePhoneNumberAndLogin, resetPassword, changePassword,getNewUsers,
+     getUserAccessRights, updateUserAccessLevel} = require('./routes/user');
 const {getPaymentURL} = require('./routes/payment');
 const {sendPasswordResetSMS , checkResetCode} = require('./routes/twilio');
 const {addUserAdmin, updateUserAdmin, deleteAdminUser, checkAdminCredentials,
@@ -55,5 +56,8 @@ router.post('/updateNewUserAdminInfo', updateNewUserAdminInfo);
 router.post('/deleteNewUser', deleteNewUser);
 router.post('/checkAdminCredentialsRefreshToken', checkAdminCredentialsRefreshToken);
 
+router.get('/getNewUsers', getNewUsers);
+router.get('/getUserAccessRights', getUserAccessRights);
+router.post('/updateUserAccessLevel', updateUserAccessLevel);
 
 module.exports = router;
