@@ -1,6 +1,10 @@
 const md5 = require('md5');
 //const connsql = require('../database');
 const pool = require('../pool');
+const multer = require('multer');
+const fs = require('fs');
+const path = require('path');
+const sharp = require('sharp');
 
 // Get all items method
 function getTovar(req, res) {
@@ -239,12 +243,68 @@ function updateItem(req, res) {
     });
 }
 
+// Конфигурация multer для сохранения изображений
+const storage = multer.diskStorage({
+    destination: function (req, file, cb) {
+        const uploadPath = path.join(__dirname, 'uploads');
+        if (!fs.existsSync(uploadPath)) {
+            fs.mkdirSync(uploadPath, { recursive: true }); // Создаем папку, включая все промежуточные папки
+        }
+        cb(null, uploadPath); // Указываем папку для сохранения файлов
+    },
+    filename: function (req, file, cb) {
+        // Генерируем уникальное имя для файла
+        const uniqueSuffix = Date.now() + '-' + Math.round(Math.random() * 1E9);
+        cb(null, uniqueSuffix + path.extname(file.originalname)); 
+    }
+});
 
+const fileFilter = (req, file, cb) => {
+    if (file.mimetype.startsWith('image/')) {
+        cb(null, true);
+    } else {
+        cb(new Error('Только изображения разрешены!'), false);
+    }
+};
+
+const upload = multer({ storage: storage, fileFilter: fileFilter });
+
+const uploadImage = (req, res, next) => {
+    upload.single('image')(req, res, (err) => {
+        if (err instanceof multer.MulterError) {
+            return res.status(400).json({ error: 'Ошибка при загрузке файла!', details: err.message });
+        } else if (err) {
+            return res.status(500).json({ error: 'Ошибка сервера при загрузке файла!' });
+        }
+        if (!req.file) {
+            return res.status(400).json({ error: 'Файл не был загружен!' });
+        }
+
+        const inputFilePath = req.file.path;
+        const outputFilePath = path.join(__dirname, 'uploads/uploads', req.file.filename);
+        console.log(inputFilePath);
+        console.log(outputFilePath);
+
+        // Изменение размера изображения до 186x186 пикселей
+        sharp(inputFilePath)
+            .resize(186, 186)
+            .toFile(outputFilePath, (err) => {
+                if (err) {
+                    console.log(err);
+                    return res.status(500).json({ error: 'Ошибка при обработке изображения!' });
+                }
+                // Создаем полный URL для доступа к загруженному файлу
+                const filePath = `http://localhost:5000/routes/uploads/uploads/${req.file.filename}`;
+                res.status(200).json({ filePath: filePath });
+            });
+    });
+};
 
 module.exports = {
     getTovar,
     deleteItem,
     addItem,
     updateItem,
-    checkAdminAccessJson
+    checkAdminAccessJson,
+    uploadImage
 };

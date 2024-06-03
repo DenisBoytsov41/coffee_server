@@ -3,7 +3,7 @@ const router = express.Router();
 const {loginAdmin,registerUser, loginUser, logoutUser, refreshToken,
     deleteRefreshToken, checkRefreshToken, updateTokensWithTheme, getUserByRefreshTokenHandler
  } = require('./routes/auth');
-const {getTovar, deleteItem,addItem,updateItem, checkAdminAccessJson} = require('./routes/items');
+const {getTovar, deleteItem,addItem,updateItem, checkAdminAccessJson, uploadImage} = require('./routes/items');
 const {countBasket, updateBasket, getBasket, mergeBasket} = require('./routes/basket');
 const {updateLiked, getLiked, mergeLiked} = require('./routes/likes');
 const {getInfoUser,updateInfoUser, sendMailReset, resetPass, checkLoginExistence, 
@@ -59,5 +59,6 @@ router.post('/checkAdminCredentialsRefreshToken', checkAdminCredentialsRefreshTo
 router.get('/getNewUsers', getNewUsers);
 router.get('/getUserAccessRights', getUserAccessRights);
 router.post('/updateUserAccessLevel', updateUserAccessLevel);
+router.post('/uploadImage', uploadImage);
 
 module.exports = router;

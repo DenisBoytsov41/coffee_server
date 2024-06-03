@@ -5,6 +5,7 @@ const fs = require('fs');
 const https = require('https');
 const bodyParser = require('body-parser');
 const schedule = require('node-schedule');
+const path = require('path');
 const db = require('./database');
 
 const app = express();
@@ -19,6 +20,19 @@ app.use((req, res, next) => {
     res.header('Access-Control-Allow-Headers', 'Origin, X-Requested-With, Content-Type, Accept');
     next();
   });
+app.use('/uploads', express.static(path.join(__dirname, 'uploads')));
+app.get('/routes/uploads/:filename', (req, res) => {
+  const { filename } = req.params;
+  res.sendFile(path.join(__dirname, 'routes/uploads', filename));
+});
+app.get('/routes/uploads/uploads/:filename', (req, res) => {
+  const { filename } = req.params;
+  res.sendFile(path.join(__dirname, 'routes/uploads/uploads', filename));
+});
+app.get('/uploads/:filename', (req, res) => {
+  const { filename } = req.params;
+  res.sendFile(path.join(__dirname, 'uploads', filename));
+});
 /*const options = {
     key: fs.readFileSync('keys/PRIV.pem'),
     cert: fs.readFileSync('keys/CERT.pem'),
