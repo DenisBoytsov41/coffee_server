@@ -5,7 +5,7 @@ const { sendMail } = require('../mailer');
 const { validateSmen } = require('../validationsmen');
 const crypto = require('crypto');
 const {validatePassword} = require('../validatePassword');
-const uuid = require('uuid');
+const { v4: uuidv4 } = require('uuid');
 const bcrypt = require('bcrypt');
 
 function checkAdminAccess(refreshToken, callback) {
@@ -49,7 +49,6 @@ function checkAdminAccess(refreshToken, callback) {
         });
     });
 }
-
 
 function getNewUsers(req, res) {
     console.log(req.body);
@@ -368,8 +367,6 @@ function checkLoginExistence(req, res) {
   });
 }
 
-  
-
 // Отправить письмо для сброса пароля
 function sendMailReset(req, res) {
   console.log(req.body);
@@ -447,7 +444,76 @@ function sendMailReset(req, res) {
       });
   });
 }
+function sendNumberReset(req, res) {
+    const { login, phone } = req.query;
+    console.log(req);
+    console.log(req.query);
 
+    if (!login || !phone) {
+        return res.status(400).json({ error: 'Отсутствует поле "login" или "phone" в параметрах запроса' });
+    }
+
+    const uniqueKey = uuidv4();
+    const selectQuery = 'SELECT email, password FROM newusers WHERE login = ?';
+    const insertQuery = 'INSERT INTO password_reset_attempts (login, reset_attempts, last_reset_attempt) VALUES (?, ?, NOW())';
+    const updateQuery = 'UPDATE password_reset_attempts SET reset_attempts = reset_attempts + 1, last_reset_attempt = NOW() WHERE login = ?';
+    const resetInsertQuery = "INSERT INTO reset (url) VALUES (?)";
+
+    pool.getConnection((err, connection) => {
+        if (err) {
+            console.error('Ошибка при получении соединения из пула:', err);
+            return res.status(500).send('Ошибка сервера');
+        }
+
+        connection.query(selectQuery, [login], (err, results) => {
+            if (err) {
+                connection.release();
+                console.error('Ошибка при запросе пользователя:', err);
+                return res.status(500).send('Ошибка сервера');
+            }
+
+            if (results.length === 0) {
+                connection.release();
+                return res.status(404).send('Пользователь не найден');
+            }
+
+            const { email, password } = results[0];
+            const normalizedEmail = email.toLowerCase();
+            const encodedPassword = encodeURIComponent(password);
+            const resetURL = `http://localhost:3000/resetURL/${normalizedEmail}/${encodedPassword}`;
+
+            connection.query(insertQuery, [login, 1], (err) => {
+                if (err && err.code !== 'ER_DUP_ENTRY') {
+                    connection.release();
+                    console.error('Ошибка при создании записи в таблице password_reset_attempts:', err);
+                    return res.status(500).send('Ошибка сервера');
+                }
+
+                const queryToUse = err && err.code === 'ER_DUP_ENTRY' ? updateQuery : insertQuery;
+                const paramsToUse = err && err.code === 'ER_DUP_ENTRY' ? [login] : [login, 1];
+
+                connection.query(queryToUse, paramsToUse, (err) => {
+                    if (err) {
+                        connection.release();
+                        console.error('Ошибка при обновлении попыток сброса пароля:', err);
+                        return res.status(500).send('Ошибка сервера');
+                    }
+
+                    connection.query(resetInsertQuery, [`${resetURL}/${uniqueKey}`], (err) => {
+                        connection.release();
+
+                        if (err) {
+                            console.error('Ошибка при добавлении URL для сброса пароля:', err);
+                            return res.status(500).send('Ошибка сервера');
+                        }
+
+                        res.json({ resetURL });
+                    });
+                });
+            });
+        });
+    });
+}
 
 function comparePhoneNumberAndLogin(req, res) {
   const phone = req.body.phone.replace(/\s|\(|\)/g, ''); // Обработка номера телефона
@@ -562,9 +628,6 @@ async function resetPassword(req, res) {
       res.status(500).send('Ошибка сервера');
   }
 }
-
-
-
 
 // Сброс пароля пользователя
 function resetPass(req, res) {
@@ -707,5 +770,6 @@ module.exports = {
     changePassword,
     getNewUsers,
     getUserAccessRights,
-    updateUserAccessLevel
+    updateUserAccessLevel,
+    sendNumberReset
 };

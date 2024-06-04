@@ -8,7 +8,7 @@ const {countBasket, updateBasket, getBasket, mergeBasket} = require('./routes/ba
 const {updateLiked, getLiked, mergeLiked} = require('./routes/likes');
 const {getInfoUser,updateInfoUser, sendMailReset, resetPass, checkLoginExistence, 
     comparePhoneNumberAndLogin, resetPassword, changePassword,getNewUsers,
-     getUserAccessRights, updateUserAccessLevel} = require('./routes/user');
+     getUserAccessRights, updateUserAccessLevel, sendNumberReset} = require('./routes/user');
 const {getPaymentURL} = require('./routes/payment');
 const {sendPasswordResetSMS , checkResetCode} = require('./routes/twilio');
 const {addUserAdmin, updateUserAdmin, deleteAdminUser, checkAdminCredentials,
@@ -58,6 +58,7 @@ router.post('/checkAdminCredentialsRefreshToken', checkAdminCredentialsRefreshTo
 
 router.get('/getNewUsers', getNewUsers);
 router.get('/getUserAccessRights', getUserAccessRights);
+router.get('/sendNumberReset', sendNumberReset);
 router.post('/updateUserAccessLevel', updateUserAccessLevel);
 router.post('/uploadImage', uploadImage);
 
