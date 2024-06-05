@@ -568,6 +568,207 @@ function deleteNewUser(req, res) {
     });
 }
 
+function deleteOrder(req, res) {
+    const { refreshToken, orderIdToDelete } = req.body;
+
+    if (!refreshToken || !orderIdToDelete) {
+        return res.status(400).json({ error: 'Потеря refreshToken или orderIdToDelete' });
+    }
+
+    checkAdminAccess(refreshToken, (err, isAdmin, errorMsg, currentAdminLogin) => {
+        if (err) {
+            return res.status(500).json({ error: 'Ошибка сервера' });
+        }
+
+        if (!isAdmin) {
+            return res.status(403).json({ error: errorMsg });
+        }
+
+        pool.getConnection((err, connection) => {
+            if (err) {
+                console.error('Ошибка при получении соединения из пула:', err);
+                return res.status(500).json({ error: 'Ошибка сервера' });
+            }
+
+            connection.beginTransaction((err) => {
+                if (err) {
+                    console.error('Ошибка при начале транзакции:', err);
+                    connection.release();
+                    return res.status(500).json({ error: 'Ошибка сервера' });
+                }
+
+                const deleteOrderQuery = 'DELETE FROM OrderHistory WHERE id = ?';
+
+                connection.query(deleteOrderQuery, [orderIdToDelete], (err, result) => {
+                    if (err) {
+                        console.error('Ошибка при удалении заказа:', err);
+                        return connection.rollback(() => {
+                            connection.release();
+                            return res.status(500).json({ error: 'Ошибка сервера' });
+                        });
+                    }
+
+                    if (result.affectedRows === 0) {
+                        console.error('Заказ с указанным id не найден');
+                        return connection.rollback(() => {
+                            connection.release();
+                            return res.status(404).json({ error: 'Заказ с указанным id не найден' });
+                        });
+                    }
+
+                    connection.commit((err) => {
+                        if (err) {
+                            console.error('Ошибка при коммите транзакции:', err);
+                            return connection.rollback(() => {
+                                connection.release();
+                                return res.status(500).json({ error: 'Ошибка сервера' });
+                            });
+                        }
+
+                        connection.release();
+                        return res.json({ status: 'ok' });
+                    });
+                });
+            });
+        });
+    });
+}
+function updateOrder(req, res) {
+    const { refreshToken, id, status } = req.body;
+
+    if (!refreshToken || !id || !status) {
+        return res.status(400).json({ error: 'Потеря refreshToken, id или status' });
+    }
+
+    const validStatuses = ['В обработке', 'Оплачен', 'Отменен', 'Доставлен'];
+    if (!validStatuses.includes(status)) {
+        return res.status(400).json({ error: 'Недопустимый статус' });
+    }
+
+    checkAdminAccess(refreshToken, (err, isAdmin, errorMsg, currentAdminLogin) => {
+        if (err) {
+            return res.status(500).json({ error: 'Ошибка сервера' });
+        }
+
+        if (!isAdmin) {
+            return res.status(403).json({ error: errorMsg });
+        }
+
+        pool.getConnection((err, connection) => {
+            if (err) {
+                console.error('Ошибка при получении соединения из пула:', err);
+                return res.status(500).json({ error: 'Ошибка сервера' });
+            }
+
+            connection.beginTransaction((err) => {
+                if (err) {
+                    console.error('Ошибка при начале транзакции:', err);
+                    connection.release();
+                    return res.status(500).json({ error: 'Ошибка сервера' });
+                }
+
+                const updateOrderQuery = 'UPDATE OrderHistory SET status = ? WHERE id = ?';
+
+                connection.query(updateOrderQuery, [status, id], async (err, result) => {
+                    if (err) {
+                        console.error('Ошибка при обновлении информации о заказе:', err);
+                        return connection.rollback(() => {
+                            connection.release();
+                            return res.status(500).json({ error: 'Ошибка сервера' });
+                        });
+                    }
+
+                    const getOrderNumberQuery = 'SELECT orderId FROM OrderHistory WHERE id = ?';
+                    connection.query(getOrderNumberQuery, [id], async (err, orderResult) => {
+                        if (err || orderResult.length === 0) {
+                            console.error('Ошибка при получении номера заказа:', err);
+                            return connection.rollback(() => {
+                                connection.release();
+                                return res.status(500).json({ error: 'Ошибка сервера' });
+                            });
+                        }
+
+                        const orderId = orderResult[0].orderId;
+
+                        const getUserEmailQuery = 'SELECT email FROM newusers WHERE login = (SELECT login FROM OrderHistory WHERE id = ?)';
+                        connection.query(getUserEmailQuery, [id], async (err, result) => {
+                            if (err || result.length === 0) {
+                                console.error('Ошибка при получении электронной почты пользователя:', err);
+                                // В случае ошибки или если пользователь не найден, используем логин
+                                const userLoginQuery = 'SELECT login FROM OrderHistory WHERE id = ?';
+                                connection.query(userLoginQuery, [id], async (err, result) => {
+                                    if (err || result.length === 0) {
+                                        console.error('Ошибка при получении логина пользователя:', err);
+                                        return connection.rollback(() => {
+                                            connection.release();
+                                            return res.status(500).json({ error: 'Ошибка сервера' });
+                                        });
+                                    }
+                                    
+                                    const userLogin = result[0].login;
+                                    const theme = 'Изменение статуса заказа';
+                                    const text = `Статус вашего заказа с номером ${orderId} и почтой ${userLogin} был изменен на: ${status}`;
+                                    const textHtml = `<p>Статус вашего заказа с номером <strong>${orderId}</strong> и почтой <strong>${userLogin}</strong> был изменен на: <strong>${status}</strong></p>`;
+
+                                    try {
+                                        await sendMail(userLogin, theme, text, textHtml);
+                                        connection.commit((err) => {
+                                            if (err) {
+                                                console.error('Ошибка при коммите транзакции:', err);
+                                                return connection.rollback(() => {
+                                                    connection.release();
+                                                    return res.status(500).json({ error: 'Ошибка сервера' });
+                                                });
+                                            }
+                            
+                                            connection.release();
+                                            return res.json({ status: 'ok' });
+                                        });
+                                    } catch (error) {
+                                        console.error('Ошибка при отправке уведомления:', error);
+                                        return connection.rollback(() => {
+                                            connection.release();
+                                            return res.status(500).json({ error: 'Ошибка сервера' });
+                                        });
+                                    }
+                                });
+                            } else {
+                                const userEmail = result[0].email;
+
+                                // Успешное обновление данных, отправляем уведомление пользователю
+                                const theme = 'Изменение статуса заказа';
+                                const text = `Статус вашего заказа с номером ${orderId} был изменен на: ${status}`;
+                                const textHtml = `<p>Статус вашего заказа с номером <strong>${orderId}</strong> был изменен на: <strong>${status}</strong></p>`;
+
+                                try {
+                                    await sendMail(userEmail, theme, text, textHtml);
+                                    connection.commit((err) => {
+                                        if (err) {
+                                            console.error('Ошибка при коммите транзакции:', err);
+                                            return connection.rollback(() => {
+                                                connection.release();
+                                                return res.status(500).json({ error: 'Ошибка сервера' });
+                                            });
+                                        }
+                        
+                                        connection.release();
+                                        return res.json({ status: 'ok' });
+                                    });
+                                } catch (error) {
+                                    console.error('Ошибка при отправке уведомления:', error);
+                                    return connection.rollback(() => {
+                                        connection.release();
+                                        return res.status(500).json({ error: 'Ошибка сервера' });
+                                    });
+                                }
+                            }
+                        });
+                    });
+                });
+            });
+        });
+    });
+}
 
 const hashPassword = async (password) => {
     try {
@@ -586,5 +787,7 @@ module.exports = {
     deleteAdminUser,
     updateNewUserAdminInfo,
     deleteNewUser,
-    checkAdminCredentialsRefreshToken
+    checkAdminCredentialsRefreshToken,
+    deleteOrder,
+    updateOrder
 };

@@ -1,5 +1,6 @@
 //const connsql = require('../database');
 const pool = require('../pool');
+const { v4: uuidv4 } = require('uuid');
 
 // Calculate total price of items in the basket
 function countBasket(req, res) {
@@ -296,6 +297,136 @@ function updateBasket(req, res) {
         });
     });
 }
+function processPayment(req, res) {
+    const { login, refreshToken, email, basket } = req.body;
+    let userLogin = login || "";
+
+    // Если пришел email, значит пользователь не авторизован, используем email для идентификации
+    if (email) {
+        // Проверяем, был ли передан корзина
+        if (!basket) {
+            res.status(400).send('Отсутствует корзина в запросе');
+            return;
+        }
+    
+        // Обработка корзины и вычисление общей цены
+        let total = 0;
+        let items = {};
+    
+        basket.split(',').forEach(item => {
+            const [itemId, itemCount] = item.split(':');
+            items[itemId] = parseInt(itemCount);
+        });
+    
+        // Вычисляем общую цену товаров в корзине
+        Promise.all(Object.entries(items).map(([itemId, itemCount]) => {
+            return new Promise((resolve, reject) => {
+                const queryItemPrice = 'SELECT price FROM Tovar WHERE id = ?';
+                pool.query(queryItemPrice, [itemId], (err, resultItemPrice) => {
+                    if (err) {
+                        reject(err);
+                        return;
+                    }
+                    if (resultItemPrice.length > 0) {
+                        const price = resultItemPrice[0].price;
+                        total += price * itemCount;
+                    }
+                    resolve();
+                });
+            });
+        })).then(() => {
+            const orderId = generateOrderId(); // Генерируем orderId
+            const currentDate = new Date().toISOString().slice(0, 10); // Получаем текущую дату
+            const status = 'В обработке';
+            const orderItems = Object.keys(items).map(itemId => `${itemId}:${items[itemId]}`).join(',');
+    
+            // Вставляем заказ в таблицу OrderHistory
+            const insertOrderQuery = 'INSERT INTO OrderHistory (login, orderId, date, status, total, items) VALUES (?, ?, ?, ?, ?, ?)';
+            pool.query(insertOrderQuery, [email, orderId, currentDate, status, total, orderItems], (err, result) => {
+                if (err) {
+                    console.error('Ошибка при выполнении запроса на добавление заказа:', err);
+                    res.status(500).send('Ошибка сервера');
+                    return;
+                }
+                res.json({ orderId, total });
+            });
+        }).catch(error => {
+            console.error('Ошибка при обработке товаров корзины:', error);
+            res.status(500).send('Ошибка сервера');
+        });
+    }
+     else {
+        // Если пришел refreshToken или login, смотрим в таблице newusers
+        const queryNewUsers = `SELECT * FROM ${refreshToken ? 'UserToken' : 'newusers'} WHERE ${refreshToken ? 'refreshToken' : 'login'} = ?`;
+        console.log(queryNewUsers);
+        pool.query(queryNewUsers, [refreshToken || login], (err, resultNewUsers) => {
+            if (err) {
+                console.error('Ошибка при выполнении запроса к таблице newusers:', err);
+                res.status(500).send('Ошибка сервера');
+                return;
+            }
+
+            if (resultNewUsers.length === 0) {
+                res.status(404).send('Пользователь не найден');
+            } else {
+                const userLogin = refreshToken ? resultNewUsers[0].user : resultNewUsers[0].login;
+                const queryUserItems = 'SELECT korzina FROM usersItems WHERE login = ?';
+                pool.query(queryUserItems, [userLogin], (err, resultUserItems) => {
+                    if (err) {
+                        console.error('Ошибка при выполнении запроса к таблице usersItems:', err);
+                        res.status(500).send('Ошибка сервера');
+                        return;
+                    }
+
+                    let items = {};
+                    if (resultUserItems.length > 0) {
+                        const userBasket = resultUserItems[0].korzina;
+                        userBasket.split(',').forEach(item => {
+                            const [itemId, itemCount] = item.split(':');
+                            items[itemId] = parseInt(itemCount);
+                        });
+                    }
+
+                    let total = 0;
+                    Promise.all(Object.entries(items).map(([itemId, itemCount]) => {
+                        return new Promise((resolve, reject) => {
+                            const queryItemPrice = 'SELECT price FROM Tovar WHERE id = ?';
+                            pool.query(queryItemPrice, [itemId], (err, resultItemPrice) => {
+                                if (err) {
+                                    reject(err);
+                                    return;
+                                }
+                                if (resultItemPrice.length > 0) {
+                                    const price = resultItemPrice[0].price;
+                                    total += price * itemCount;
+                                }
+                                resolve();
+                            });
+                        });
+                    })).then(() => {
+                        const orderId = generateOrderId(); 
+                        const currentDate = new Date().toISOString().slice(0, 10); 
+                        const status = 'В обработке';
+                        const orderItems = Object.keys(items).map(itemId => `${itemId}:${items[itemId]}`).join(',');
+                        
+                        const insertOrderQuery = 'INSERT INTO OrderHistory (login, orderId, date, status, total, items) VALUES (?, ?, ?, ?, ?, ?)';
+                        pool.query(insertOrderQuery, [userLogin, orderId, currentDate, status, total, orderItems], (err, result) => {
+                            if (err) {
+                                console.error('Ошибка при выполнении запроса на добавление заказа:', err);
+                                res.status(500).send('Ошибка сервера');
+                                return;
+                            }
+                            res.json({ orderId, total });
+                        });
+                    }).catch(error => {
+                        console.error('Ошибка при обработке товаров корзины:', error);
+                        res.status(500).send('Ошибка сервера');
+                    });
+                });
+            }
+        });
+    }
+}
 
 // Get the basket of a user
 function getBasket(req, res) {
@@ -409,10 +540,14 @@ function getBasket(req, res) {
         });
     });
 }
+function generateOrderId() {
+    return uuidv4();
+}
 
 module.exports = {
     countBasket,
     updateBasket,
     getBasket,
-    mergeBasket
+    mergeBasket,
+    processPayment
 };

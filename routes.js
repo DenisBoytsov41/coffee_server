@@ -3,16 +3,16 @@ const router = express.Router();
 const {loginAdmin,registerUser, loginUser, logoutUser, refreshToken,
     deleteRefreshToken, checkRefreshToken, updateTokensWithTheme, getUserByRefreshTokenHandler
  } = require('./routes/auth');
-const {getTovar, deleteItem,addItem,updateItem, checkAdminAccessJson, uploadImage} = require('./routes/items');
-const {countBasket, updateBasket, getBasket, mergeBasket} = require('./routes/basket');
+const {getTovar, deleteItem,addItem,updateItem, checkAdminAccessJson, uploadImage, getItemPrice} = require('./routes/items');
+const {countBasket, updateBasket, getBasket, mergeBasket, processPayment} = require('./routes/basket');
 const {updateLiked, getLiked, mergeLiked} = require('./routes/likes');
 const {getInfoUser,updateInfoUser, sendMailReset, resetPass, checkLoginExistence, 
-    comparePhoneNumberAndLogin, resetPassword, changePassword,getNewUsers,
-     getUserAccessRights, updateUserAccessLevel, sendNumberReset} = require('./routes/user');
+    comparePhoneNumberAndLogin, resetPassword, changePassword,getNewUsers, getOrderHistoryAdmin,
+     getUserAccessRights, updateUserAccessLevel, sendNumberReset, getOrderHistory} = require('./routes/user');
 const {getPaymentURL} = require('./routes/payment');
 const {sendPasswordResetSMS , checkResetCode} = require('./routes/twilio');
 const {addUserAdmin, updateUserAdmin, deleteAdminUser, checkAdminCredentials,
-     updateNewUserAdminInfo, deleteNewUser, checkAdminCredentialsRefreshToken} = require('./routes/admins');
+     updateNewUserAdminInfo, deleteNewUser, checkAdminCredentialsRefreshToken, deleteOrder, updateOrder} = require('./routes/admins');
 
 router.post('/loginAdmin', loginAdmin);
 router.post('/checkUser', loginUser);
@@ -57,9 +57,15 @@ router.post('/deleteNewUser', deleteNewUser);
 router.post('/checkAdminCredentialsRefreshToken', checkAdminCredentialsRefreshToken);
 
 router.get('/getNewUsers', getNewUsers);
+router.get('/getOrderHistory', getOrderHistory);
 router.get('/getUserAccessRights', getUserAccessRights);
 router.get('/sendNumberReset', sendNumberReset);
 router.post('/updateUserAccessLevel', updateUserAccessLevel);
 router.post('/uploadImage', uploadImage);
+router.post('/processPayment', processPayment);
+router.get('/getOrderHistoryAdmin', getOrderHistoryAdmin);
+router.get('/getItemPrice', getItemPrice);
+router.post('/deleteOrder', deleteOrder);
+router.post('/updateOrder', updateOrder);
 
 module.exports = router;

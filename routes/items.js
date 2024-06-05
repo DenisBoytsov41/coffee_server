@@ -300,11 +300,45 @@ const uploadImage = (req, res, next) => {
     });
 };
 
+function getItemPrice(req, res) {
+    const { itemId } = req.query;
+
+    if (!itemId) {
+        return res.status(400).json({ error: 'Item ID is required' });
+    }
+
+    const selectQuery = 'SELECT name, price FROM Tovar WHERE id = ?';
+
+    pool.getConnection((err, connection) => {
+        if (err) {
+            console.error('Ошибка при получении соединения из пула:', err);
+            return res.status(500).send('Ошибка сервера');
+        }
+
+        connection.query(selectQuery, [itemId], (err, result) => {
+            connection.release();
+
+            if (err) {
+                console.error('Ошибка при запросе цены и имени товара:', err);
+                return res.status(500).send('Ошибка сервера');
+            }
+
+            if (result && result.length > 0) {
+                const { name, price } = result[0];
+                res.status(200).json({ name, price });
+            } else {
+                res.status(404).json({ error: 'Товар не найден' });
+            }
+        });
+    });
+}
+
 module.exports = {
     getTovar,
     deleteItem,
     addItem,
     updateItem,
     checkAdminAccessJson,
-    uploadImage
+    uploadImage,
+    getItemPrice
 };

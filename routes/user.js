@@ -73,6 +73,30 @@ function getNewUsers(req, res) {
     });
 }
 
+function getOrderHistoryAdmin(req, res) {
+    console.log(req.body);
+    const query = 'SELECT * FROM OrderHistory';
+
+    pool.getConnection((err, connection) => {
+        if (err) {
+            console.error('Ошибка при получении соединения из пула:', err);
+            return res.status(500).send('Ошибка сервера');
+        }
+
+        connection.query(query, (err, result) => {
+            connection.release();
+            if (err) {
+                console.error('Ошибка при выполнении запроса к базе данных:', err);
+                return res.status(500).send('Ошибка сервера');
+            }
+
+            console.log("Данные о заказах получены успешно");
+            res.json(result);
+        });
+    });
+}
+
+
 function getUserAccessRights(req, res) {
     console.log(req.body);
     const query = 'SELECT * FROM user_access_rights';
@@ -759,6 +783,50 @@ const hashPassword = async (password) => {
   }
 };
 
+function getOrderHistory(req, res) {
+    const { refreshToken } = req.query;
+
+    if (!refreshToken) {
+        return res.status(400).json({ error: 'Отсутствует refresh токен' });
+    }
+
+    const selectUserQuery = 'SELECT user FROM UserToken WHERE refreshToken = ?';
+    const selectOrdersQuery = 'SELECT * FROM OrderHistory WHERE login = ?';
+
+    pool.getConnection((err, connection) => {
+        if (err) {
+            console.error('Ошибка при получении соединения из пула:', err);
+            return res.status(500).send('Ошибка сервера');
+        }
+
+        connection.query(selectUserQuery, [refreshToken], (err, userResult) => {
+            if (err) {
+                connection.release();
+                console.error('Ошибка при запросе пользователя по refreshToken:', err);
+                return res.status(500).send('Ошибка сервера');
+            }
+
+            if (userResult && userResult.length > 0) {
+                const { user } = userResult[0];
+
+                connection.query(selectOrdersQuery, [user], (err, ordersResult) => {
+                    connection.release();
+                    
+                    if (err) {
+                        console.error('Ошибка при запросе истории заказов:', err);
+                        return res.status(500).send('Ошибка сервера');
+                    }
+
+                    res.status(200).json({ orders: ordersResult });
+                });
+            } else {
+                connection.release();
+                res.status(404).send('Пользователь не найден');
+            }
+        });
+    });
+}
+
 module.exports = {
     getInfoUser,
     updateInfoUser,
@@ -771,5 +839,7 @@ module.exports = {
     getNewUsers,
     getUserAccessRights,
     updateUserAccessLevel,
-    sendNumberReset
+    sendNumberReset,
+    getOrderHistory,
+    getOrderHistoryAdmin
 };
