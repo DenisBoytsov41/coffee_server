@@ -12,7 +12,7 @@ const client = twilio(accountSid, authToken);
 // Метод отправки SMS с кодом восстановления пароля
 async function sendPasswordResetSMS(req, res) {
     const { phone, login } = req.body;
-    const code = generateRandomCode(); // Генерация случайного кода для восстановления пароля
+    const code = generateRandomCode();
 
     try {
         const phoneString = String(phone);
@@ -22,11 +22,11 @@ async function sendPasswordResetSMS(req, res) {
         console.log(login);
         await client.messages.create({
             body: `Ваш код для восстановления пароля: ${codeString}`,
-            from: twilioPhoneNumber, // Используйте ваш Twilio номер
+            from: twilioPhoneNumber,
             to: phoneString
         });
-        await saveResetCode(login, code); // Сохранение кода и логина для дальнейшей проверки
-        res.status(200).send('ok'); // Отправляем код как часть ответа
+        await saveResetCode(login, code);
+        res.status(200).send('ok');
     } catch (error) {
         console.error('Ошибка при отправке SMS:', error);
         res.status(500).send('Ошибка при отправке SMS');
@@ -34,7 +34,6 @@ async function sendPasswordResetSMS(req, res) {
 }
 
 
-// Генерация случайного кода для восстановления пароля
 function generateRandomCode() {
     return Math.floor(1000 + Math.random() * 9000); // Генерация четырехзначного случайного числа
 }

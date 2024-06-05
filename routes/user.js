@@ -5,6 +5,7 @@ const { sendMail } = require('../mailer');
 const { validateSmen } = require('../validationsmen');
 const crypto = require('crypto');
 const {validatePassword} = require('../validatePassword');
+const uuid = require('uuid');
 const { v4: uuidv4 } = require('uuid');
 const bcrypt = require('bcrypt');
 
