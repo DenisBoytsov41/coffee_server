@@ -310,8 +310,8 @@ function updateInfoUser(req, res) {
   
                 // Отправляем сообщение после успешного обновления данных пользователя
                 const theme = 'Обновление данных профиля';
-                const text = 'Ваши данные профиля были успешно обновлены.';
-                const textHtml = '<p>Ваши данные профиля были успешно обновлены.</p>';
+                const text = 'Ваши данные профиля были успешно обновлены. Если это делали не вы, то обратитесь к администратору на сайте.';
+                const textHtml = '<p>Ваши данные профиля были успешно обновлены.  Если это делали не вы, то обратитесь к администратору на сайте.</p>';
   
                 sendMail(user.email, theme, text, textHtml)
                   .then(() => {
@@ -726,6 +726,13 @@ async function changePassword(req, res) {
         return res.status(400).json({ error: 'Новый пароль и подтверждение пароля не совпадают' });
     }
 
+    // Проверяем валидность нового пароля
+    const passwordValidation = validatePassword(newPassword);
+    if (!passwordValidation.success) {
+        console.log('Новый пароль не соответствует требованиям безопасности');
+        return res.status(400).json({ error: passwordValidation.errors });
+    }
+
     try {
         // Находим логин пользователя по refreshToken в таблице UserToken
         const selectTokenQuery = 'SELECT user FROM UserToken WHERE refreshToken = ?';
@@ -741,7 +748,7 @@ async function changePassword(req, res) {
         const login = user; // Присваиваем его значение переменной login
 
         // Получаем хешированный пароль пользователя из таблицы newusers по логину
-        const selectUserQuery = 'SELECT password FROM newusers WHERE login = ?';
+        const selectUserQuery = 'SELECT password, email FROM newusers WHERE login = ?';
         const [users] = await pool.promise().query(selectUserQuery, [login]);
         console.log(login);
         console.log(users);
@@ -750,7 +757,10 @@ async function changePassword(req, res) {
             console.log('Пользователь не найден');
             return res.status(404).json({ error: 'Пользователь не найден' });
         }
+
+        const userEmail = users[0].email; // Получаем email пользователя
         console.log(users[0].password);
+
         // Сравниваем старый пароль с хешированным паролем в базе данных
         const isMatch = await bcrypt.compare(oldPassword, users[0].password);
         if (!isMatch) {
@@ -766,7 +776,18 @@ async function changePassword(req, res) {
         const updateQuery = 'UPDATE newusers SET password = ? WHERE login = ?';
         await pool.promise().query(updateQuery, [hashedNewPassword, login]);
 
-        res.json({ status: 'ok', message: 'Пароль успешно обновлен' });
+        // Отправляем email пользователю
+        const theme = 'Изменение пароля';
+        const text = 'Ваш пароль был успешно изменен. Если это сделали не вы, обратитесь к администратору сайта.';
+        const textHtml = '<p>Ваш пароль был успешно изменен. Если это сделали не вы, обратитесь к администратору сайта.</p>';
+        
+        try {
+            await sendMail(userEmail, theme, text, textHtml);
+            res.json({ status: 'ok', message: 'Пароль успешно обновлен' });
+        } catch (emailError) {
+            console.error('Ошибка при отправке электронной почты:', emailError);
+            res.status(500).json({ status: 'ok', message: 'Пароль успешно обновлен, но произошла ошибка при отправке уведомления по электронной почте' });
+        }
     } catch (error) {
         console.log('Ошибка при смене пароля:', error);
         console.error('Ошибка при смене пароля:', error);
