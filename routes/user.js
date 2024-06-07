@@ -333,142 +333,168 @@ function updateInfoUser(req, res) {
 
 
 function checkLoginExistence(req, res) {
-  const login = req.body.login; // Получаем логин из тела запроса
+    const login = req.body.login; // Получаем логин из тела запроса
 
-  const selectQuery = 'SELECT COUNT(*) AS count, login_attempts, last_login_attempt FROM newusers WHERE login = ?';
-  const updateQuery = 'UPDATE newusers SET login_attempts = ?, last_login_attempt = NOW() WHERE login = ?';
+    const selectQuery = 'SELECT COUNT(*) AS count FROM newusers WHERE login = ?';
+    const selectResetAttemptsQuery = 'SELECT reset_attempts, last_reset_attempt FROM password_reset_attempts WHERE login = ?';
+    const updateResetAttemptsQuery = 'UPDATE password_reset_attempts SET reset_attempts = ?, last_reset_attempt = NOW() WHERE login = ?';
 
-  pool.getConnection((err, connection) => {
-      if (err) {
-          console.error('Ошибка при получении соединения из пула:', err);
-          return res.status(500).json({ error: 'Ошибка сервера' });
-      }
+    pool.getConnection((err, connection) => {
+        if (err) {
+        console.error('Ошибка при получении соединения из пула:', err);
+        return res.status(500).json({ error: 'Ошибка сервера' });
+        }
 
-      connection.query(selectQuery, [login], (err, result) => {
-          if (err) {
-              connection.release(); // Освобождаем соединение после выполнения запроса
-              console.error('Ошибка при проверке существования логина:', err);
-              return res.status(500).json({ error: 'Ошибка сервера' });
-          }
+        connection.query(selectQuery, [login], (err, result) => {
+            if (err) {
+                connection.release(); // Освобождаем соединение после выполнения запроса
+                console.error('Ошибка при проверке существования логина:', err);
+                return res.status(500).json({ error: 'Ошибка сервера' });
+            }
 
-          const count = result && result.length > 0 ? result[0].count : 0;
-          if (count > 0) {
-              const loginAttempts = result[0].login_attempts;
-              const lastLoginAttempt = new Date(result[0].last_login_attempt);
-              const currentTime = new Date();
-              const timeDifference = (currentTime - lastLoginAttempt) / (1000 * 60); // Разница в минутах
+            const count = result && result.length > 0 ? result[0].count : 0;
+            if (count > 0) {
+                connection.query(selectResetAttemptsQuery, [login], (err, resetResult) => {
+                if (err) {
+                    connection.release(); // Освобождаем соединение после выполнения запроса
+                    console.error('Ошибка при проверке попыток сброса пароля:', err);
+                    return res.status(500).json({ error: 'Ошибка сервера' });
+                }
 
-              if (loginAttempts >= 5 && timeDifference < 30) {
-                  connection.release(); // Освобождаем соединение после выполнения запроса
-                  return res.status(403).json({ error: 'Превышено количество попыток входа. Попробуйте позже.' });
-              }
+                const resetAttempts = resetResult && resetResult.length > 0 ? resetResult[0].reset_attempts : 0;
+                const lastResetAttempt = resetResult && resetResult.length > 0 ? new Date(resetResult[0].last_reset_attempt) : null;
 
-              const newLoginAttempts = timeDifference >= 15 ? 1 : loginAttempts + 1;
+                if (resetAttempts >= 5) {
+                    const currentTime = new Date();
+                    const timeDifference = (currentTime - lastResetAttempt) / (1000 * 60); // Разница в минутах
+                    if (timeDifference < 15) {
+                        connection.release();
+                        return res.status(403).json({ error: 'Превышено количество попыток сброса пароля. Попробуйте позже.' });
+                    }
+                }
 
-              connection.query(updateQuery, [newLoginAttempts, login], (err) => {
-                  connection.release(); // Освобождаем соединение после выполнения запроса
-                  if (err) {
-                      console.error('Ошибка при обновлении попыток входа:', err);
-                      return res.status(500).json({ error: 'Ошибка сервера' });
-                  }
+                connection.query(updateResetAttemptsQuery, [resetAttempts + 1, login], (err) => {
+                    connection.release();
+                    if (err) {
+                        console.error('Ошибка при обновлении попыток сброса пароля:', err);
+                        return res.status(500).json({ error: 'Ошибка сервера' });
+                    }
 
-                  if (newLoginAttempts > 5) {
-                      return res.status(403).json({ error: 'Превышено количество попыток входа. Попробуйте позже.' });
-                  }
-
-                  res.json({ exists: true });
-              });
-          } else {
-              connection.query(updateQuery, [0, login], (err) => {
-                  connection.release(); // Освобождаем соединение после выполнения запроса
-                  if (err) {
-                      console.error('Ошибка при обновлении попыток входа:', err);
-                      return res.status(500).json({ error: 'Ошибка сервера' });
-                  }
-                  res.status(404).json({ exists: false, message: 'Логин не найден' });
-              });
-          }
-      });
-  });
+                    res.json({ exists: true });
+                });
+            });
+            } else {
+                connection.release(); // Освобождаем соединение после выполнения запроса
+                res.status(404).json({ exists: false, message: 'Логин не найден' });
+            }
+        });
+    });
 }
 
 // Отправить письмо для сброса пароля
 function sendMailReset(req, res) {
-  console.log(req.body);
-  if (!req.body || !req.body.email) {
-      return res.status(400).json({ error: 'Отсутствует поле "email" в теле запроса' });
-  }
+    console.log(req.body);
+    if (!req.body || !req.body.email) {
+        return res.status(400).json({ error: 'Отсутствует поле "email" в теле запроса' });
+    }
 
-  const email = req.body.email.toLowerCase(); // Нормализуем электронную почту
-  const uniqueKey = uuid.v4(); 
+    const email = req.body.email.toLowerCase(); // Нормализуем электронную почту
+    const uniqueKey = uuid.v4();
 
-  const selectQuery = 'SELECT login, password FROM newusers WHERE email = ?';
-  const insertQuery = 'INSERT INTO password_reset_attempts (login, reset_attempts, last_reset_attempt) VALUES (?, ?, NOW())';
-  const updateQuery = 'UPDATE password_reset_attempts SET reset_attempts = ?, last_reset_attempt = NOW() WHERE login = ?';
-  const resetInsertQuery = "INSERT INTO reset (url) VALUES (?)";
+    const selectQuery = 'SELECT login, password FROM newusers WHERE email = ?';
+    const selectResetAttemptsQuery = 'SELECT reset_attempts, last_reset_attempt FROM password_reset_attempts WHERE login = ?';
+    const insertQuery = 'INSERT INTO password_reset_attempts (reset_attempts, login, last_reset_attempt) VALUES (?, ?, NOW())';
+    const updateQuery = 'UPDATE password_reset_attempts SET reset_attempts = ?, last_reset_attempt = NOW() WHERE login = ?';
+    const resetInsertQuery = "INSERT INTO reset (url) VALUES (?)";
 
-  pool.getConnection((err, connection) => {
-      if (err) {
-          console.error('Ошибка при получении соединения из пула:', err);
-          return res.status(500).send('Ошибка сервера');
-      }
+    pool.getConnection((err, connection) => {
+        if (err) {
+            console.error('Ошибка при получении соединения из пула:', err);
+            return res.status(500).send('Ошибка сервера');
+        }
 
-      connection.query(selectQuery, [email], (err, result) => {
-          if (err) {
-              connection.release(); // Освобождаем соединение после выполнения запроса
-              console.error('Ошибка при запросе пользователя:', err);
-              return res.status(500).send('Ошибка сервера');
-          }
+        connection.query(selectQuery, [email], (err, result) => {
+            if (err) {
+                connection.release();
+                console.error('Ошибка при запросе пользователя:', err);
+                return res.status(500).send('Ошибка сервера');
+            }
 
-          if (result && result.length > 0) {
-              const login = result[0].login;
-              const password = result[0].password;
+            if (result && result.length > 0) {
+                const login = result[0].login;
+                const password = result[0].password;
 
-              connection.query(insertQuery, [login, 1], (err, result) => {
-                  if (err && err.code !== 'ER_DUP_ENTRY') { // Если ошибка не связана с дублированием записи
-                      connection.release(); // Освобождаем соединение после выполнения запроса
-                      console.error('Ошибка при создании записи в таблице password_reset_attempts:', err);
-                      return res.status(500).send('Ошибка сервера');
-                  }
+                connection.query(selectResetAttemptsQuery, [login], (err, resetResult) => {
+                    if (err) {
+                        connection.release();
+                        console.error('Ошибка при проверке попыток сброса пароля:', err);
+                        return res.status(500).json({ error: 'Ошибка сервера' });
+                    }
 
-                  connection.query(updateQuery, [1, login], (err, result) => {
-                      if (err) {
-                          connection.release(); // Освобождаем соединение после выполнения запроса
-                          console.error('Ошибка при обновлении попыток сброса пароля:', err);
-                          return res.status(500).send('Ошибка сервера');
-                      }
+                    const resetAttempts = resetResult && resetResult.length > 0 ? resetResult[0].reset_attempts : 0;
+                    const lastResetAttempt = resetResult && resetResult.length > 0 ? new Date(resetResult[0].last_reset_attempt) : null;
 
-                      const encodedPassword = encodeURIComponent(password); // Кодируем полученный пароль
-                      const resetURL = `http://localhost:3000/resetURL/${email}/${encodedPassword}`;
-                      const emailSubject = 'Восстановление пароля';
-                      const emailBody = 'Это сообщение отправлено для восстановления пароля.';
-                      const emailHtml = `<a href=${resetURL}>Перейдите по ссылке для восстановления пароля</a>`;
+                    if (resetAttempts >= 5) {
+                        const currentTime = new Date();
+                        const timeDifference = (currentTime - lastResetAttempt) / (1000 * 60); // Разница в минутах
+                        if (timeDifference < 15) {
+                            connection.release();
+                            return res.status(403).json({ error: 'Превышено количество попыток сброса пароля. Попробуйте позже.' });
+                        } else {
+                            // Если прошло более 15 минут, обнуляем количество попыток сброса пароля
+                            connection.query(updateQuery, [0, login], (err) => {
+                                if (err) {
+                                    connection.release();
+                                    console.error('Ошибка при обнулении количества попыток сброса пароля:', err);
+                                    return res.status(500).send('Ошибка сервера');
+                                }
+                            });
+                        }
+                    }
 
-                      connection.query(resetInsertQuery, [`${resetURL}/${uniqueKey}`], async (err) => {
-                          connection.release(); // Освобождаем соединение после выполнения запроса
+                    const newResetAttempts = resetResult.length === 0 ? 1 : resetAttempts + 1;
+                    const resetAttemptsQuery = resetResult.length === 0 ? insertQuery : updateQuery;
 
-                          if (err) {
-                              console.error('Ошибка при добавлении URL для сброса пароля:', err);
-                              return res.status(500).send('Ошибка сервера');
-                          }
+                    connection.query(resetAttemptsQuery, [newResetAttempts, login], (err) => {
+                        if (err && err.code !== 'ER_DUP_ENTRY') { // Если ошибка не связана с дублированием записи
+                            connection.release();
+                            console.error('Ошибка при создании или обновлении записи в таблице password_reset_attempts:', err);
+                            return res.status(500).send('Ошибка сервера');
+                        }
 
-                          try {
-                              await sendMail(email, emailSubject, emailBody, emailHtml);
-                              res.json({ status: "ok" });
-                          } catch (error) {
-                              console.error('Ошибка при отправке письма:', error);
-                              res.status(500).send('Ошибка сервера');
-                          }
-                      });
-                  });
-              });
-          } else {
-              connection.release(); // Освобождаем соединение после выполнения запроса
-              res.status(404).send('Пользователь не найден');
-          }
-      });
-  });
+                        const encodedPassword = encodeURIComponent(password); // Кодируем полученный пароль
+                        const resetURL = `http://localhost:3000/resetURL/${email}/${encodedPassword}`;
+                        const emailSubject = 'Восстановление пароля';
+                        const emailBody = 'Это сообщение отправлено для восстановления пароля.';
+                        const emailHtml = `<a href=${resetURL}>Перейдите по ссылке для восстановления пароля</a>`;
+
+                        connection.query(resetInsertQuery, [`${resetURL}/${uniqueKey}`], async (err) => {
+                            if (err) {
+                                connection.release();
+                                console.error('Ошибка при добавлении URL для сброса пароля:', err);
+                                return res.status(500).send('Ошибка сервера');
+                            }
+
+                            try {
+                                await sendMail(email, emailSubject, emailBody, emailHtml);
+                                res.json({ status: "ok" });
+                                connection.release();
+                            } catch (error) {
+                                console.error('Ошибка при отправке письма:', error);
+                                res.status(500).send('Ошибка сервера');
+                            }
+                        });
+                    });
+                });
+            } else {
+                connection.release();
+                res.status(404).send('Пользователь не найден');
+            }
+        });
+    });
 }
+
+  
 function sendNumberReset(req, res) {
     const { login, phone } = req.query;
     console.log(req);
@@ -480,8 +506,9 @@ function sendNumberReset(req, res) {
 
     const uniqueKey = uuidv4();
     const selectQuery = 'SELECT email, password FROM newusers WHERE login = ?';
-    const insertQuery = 'INSERT INTO password_reset_attempts (login, reset_attempts, last_reset_attempt) VALUES (?, ?, NOW())';
-    const updateQuery = 'UPDATE password_reset_attempts SET reset_attempts = reset_attempts + 1, last_reset_attempt = NOW() WHERE login = ?';
+    const selectResetAttemptsQuery = 'SELECT reset_attempts, last_reset_attempt FROM password_reset_attempts WHERE login = ?';
+    const insertQuery = 'INSERT INTO password_reset_attempts (reset_attempts, login, last_reset_attempt) VALUES (?, ?, NOW())';
+    const updateQuery = 'UPDATE password_reset_attempts SET reset_attempts = ?, last_reset_attempt = NOW() WHERE login = ?';
     const resetInsertQuery = "INSERT INTO reset (url) VALUES (?)";
 
     pool.getConnection((err, connection) => {
@@ -507,20 +534,41 @@ function sendNumberReset(req, res) {
             const encodedPassword = encodeURIComponent(password);
             const resetURL = `http://localhost:3000/resetURL/${normalizedEmail}/${encodedPassword}`;
 
-            connection.query(insertQuery, [login, 1], (err) => {
-                if (err && err.code !== 'ER_DUP_ENTRY') {
+            connection.query(selectResetAttemptsQuery, [login], (err, resetResults) => {
+                if (err) {
                     connection.release();
-                    console.error('Ошибка при создании записи в таблице password_reset_attempts:', err);
+                    console.error('Ошибка при проверке попыток сброса пароля:', err);
                     return res.status(500).send('Ошибка сервера');
                 }
 
-                const queryToUse = err && err.code === 'ER_DUP_ENTRY' ? updateQuery : insertQuery;
-                const paramsToUse = err && err.code === 'ER_DUP_ENTRY' ? [login] : [login, 1];
+                const resetAttempts = resetResults && resetResults.length > 0 ? resetResults[0].reset_attempts : 0;
+                const lastResetAttempt = resetResults && resetResults.length > 0 ? new Date(resetResults[0].last_reset_attempt) : null;
 
-                connection.query(queryToUse, paramsToUse, (err) => {
-                    if (err) {
+                if (resetAttempts >= 5) {
+                    const currentTime = new Date();
+                    const timeDifference = (currentTime - lastResetAttempt) / (1000 * 60); // Разница в минутах
+                    if (timeDifference < 15) {
                         connection.release();
-                        console.error('Ошибка при обновлении попыток сброса пароля:', err);
+                        return res.status(403).json({ error: 'Превышено количество попыток сброса пароля. Попробуйте позже.' });
+                    } else {
+                        // Если прошло более 15 минут, обнуляем количество попыток сброса пароля
+                        connection.query(updateQuery, [0, login], (err) => {
+                            if (err) {
+                                connection.release();
+                                console.error('Ошибка при обнулении количества попыток сброса пароля:', err);
+                                return res.status(500).send('Ошибка сервера');
+                            }
+                        });
+                    }
+                }
+
+                const newResetAttempts = resetResults.length === 0 ? 1 : resetAttempts + 1;
+                const resetAttemptsQuery = resetResults.length === 0 ? insertQuery : updateQuery;
+
+                connection.query(resetAttemptsQuery, [newResetAttempts, login], (err) => {
+                    if (err && err.code !== 'ER_DUP_ENTRY') {
+                        connection.release();
+                        console.error('Ошибка при создании или обновлении записи в таблице password_reset_attempts:', err);
                         return res.status(500).send('Ошибка сервера');
                     }
 
@@ -540,119 +588,221 @@ function sendNumberReset(req, res) {
     });
 }
 
+
 function comparePhoneNumberAndLogin(req, res) {
-  const phone = req.body.phone.replace(/\s|\(|\)/g, ''); // Обработка номера телефона
-  const login = req.body.login.toLowerCase(); // Нормализация логина
+    const phone = req.body.phone.replace(/\s|\(|\)/g, ''); // Обработка номера телефона
+    const login = req.body.login.toLowerCase(); // Нормализация логина
 
-  const selectQuery = 'SELECT phone, login_attempts, last_login_attempt FROM newusers WHERE login = ?';
-  const updateQuery = 'UPDATE newusers SET login_attempts = ?, last_login_attempt = NOW() WHERE login = ?';
+    const selectQuery = 'SELECT phone FROM newusers WHERE login = ?';
+    const selectResetAttemptsQuery = 'SELECT reset_attempts, last_reset_attempt FROM password_reset_attempts WHERE login = ?';
 
-  pool.getConnection((err, connection) => {
-      if (err) {
-          console.error('Ошибка при получении соединения из пула:', err);
-          return res.status(500).send('Ошибка сервера');
-      }
+    pool.getConnection((err, connection) => {
+        if (err) {
+        console.error('Ошибка при получении соединения из пула:', err);
+        return res.status(500).send('Ошибка сервера');
+        }
 
-      connection.query(selectQuery, [login], (err, result) => {
-          if (err) {
-              connection.release(); // Освобождаем соединение после выполнения запроса
-              console.error('Ошибка при запросе номера телефона пользователя:', err);
-              return res.status(500).send('Ошибка сервера');
-          }
+        connection.query(selectResetAttemptsQuery, [login], (err, resetResult) => {
+        if (err) {
+            connection.release(); // Освобождаем соединение после выполнения запроса
+            console.error('Ошибка при проверке попыток сброса пароля:', err);
+            return res.status(500).json({ error: 'Ошибка сервера' });
+        }
 
-          if (result && result.length > 0) {
-              const { phone: userPhone, login_attempts, last_login_attempt } = result[0];
-              const formattedUserPhone = userPhone.replace(/\s|\(|\)/g, ''); // Обработка номера телефона из базы данных
+        const resetAttempts = resetResult && resetResult.length > 0 ? resetResult[0].reset_attempts : 0;
+        const lastResetAttempt = resetResult && resetResult.length > 0 ? new Date(resetResult[0].last_reset_attempt) : null;
 
-              const lastAttemptDate = new Date(last_login_attempt);
-              const currentTime = new Date();
-              const timeDifference = (currentTime - lastAttemptDate) / (1000 * 60); // Разница в минутах
+        if (resetAttempts >= 5) {
+            const currentTime = new Date();
+            const timeDifference = (currentTime - lastResetAttempt) / (1000 * 60); // Разница в минутах
+            if (timeDifference < 15) {
+            connection.release(); // Освобождаем соединение после выполнения запроса
+            return res.status(403).json({ error: 'Превышено количество попыток сброса пароля. Попробуйте позже.' });
+            }
+        }
 
-              if (login_attempts >= 5 && timeDifference < 30) {
-                  connection.release(); // Освобождаем соединение после выполнения запроса
-                  return res.status(403).json({ error: 'Превышено количество попыток. Попробуйте позже.' });
-              }
+        connection.query(selectQuery, [login], (err, result) => {
+            if (err) {
+            connection.release(); // Освобождаем соединение после выполнения запроса
+            console.error('Ошибка при запросе номера телефона пользователя:', err);
+            return res.status(500).send('Ошибка сервера');
+            }
 
-              if (formattedUserPhone === phone) {
-                  const newLoginAttempts = 0; // Сбрасываем счетчик при успешной проверке
-                  connection.query(updateQuery, [newLoginAttempts, login], (err) => {
-                      connection.release(); // Освобождаем соединение после выполнения запроса
+            if (result && result.length > 0) {
+            const { phone: userPhone } = result[0];
+            const formattedUserPhone = userPhone.replace(/\s|\(|\)/g, ''); // Обработка номера телефона из базы данных
 
-                      if (err) {
-                          console.error('Ошибка при обновлении попыток входа:', err);
-                          return res.status(500).send('Ошибка сервера');
-                      }
-
-                      res.json({ match: true });
-                  });
-              } else {
-                  const newLoginAttempts = timeDifference >= 15 ? 1 : login_attempts + 1;
-
-                  connection.query(updateQuery, [newLoginAttempts, login], (err) => {
-                      connection.release(); // Освобождаем соединение после выполнения запроса
-
-                      if (err) {
-                          console.error('Ошибка при обновлении попыток входа:', err);
-                          return res.status(500).send('Ошибка сервера');
-                      }
-
-                      res.json({ match: false });
-                  });
-              }
-          } else {
-              connection.release(); // Освобождаем соединение после выполнения запроса
-              res.status(404).send('Пользователь не найден');
-          }
-      });
-  });
+            if (formattedUserPhone === phone) {
+                res.json({ match: true });
+            } else {
+                res.json({ match: false });
+            }
+            } else {
+            res.status(404).send('Пользователь не найден');
+            }
+            connection.release(); // Освобождаем соединение после выполнения запроса
+        });
+        });
+    });
 }
+  
+  
 async function resetPassword(req, res) {
-  const { email, token, password } = req.body;
-  console.log(req.body);
+    const { email, token, password, confirmPassword } = req.body;
+    console.log(req.body);
 
-  if (!email || !token || !password) {
-      return res.status(400).json({ error: 'Отсутствуют обязательные поля' });
-  }
+    if (!email || !token || !password || !confirmPassword) {
+        return res.status(400).json({ error: 'Отсутствуют обязательные поля' });
+    }
+    // Запрос для получения логина и текущего хешированного пароля пользователя
+    const selectQuery = 'SELECT login, password FROM newusers WHERE email = ?';
+    const query = 'SELECT reset_attempts, last_reset_attempt FROM password_reset_attempts WHERE login = ?';
+    const updateQuery = 'UPDATE password_reset_attempts SET reset_attempts = ?, last_reset_attempt = NOW() WHERE login = ?';
+    const updatePasswordQuery = 'UPDATE newusers SET password = ? WHERE login = ?';
+    const updateNewUsersQuery = 'UPDATE newusers SET login_attempts = ?, last_login_attempt = NOW() WHERE login = ?';
 
-  try {
-      // Преобразуем email в нижний регистр для нормализации
-      const normalizedEmail = email.toLowerCase();
+    try {
+        // Преобразуем email в нижний регистр для нормализации
+        const normalizedEmail = email.toLowerCase();
 
-      // Запрос для получения логина и текущего хешированного пароля пользователя
-      const selectQuery = 'SELECT login, password FROM newusers WHERE email = ?';
-      const [users] = await pool.promise().query(selectQuery, [normalizedEmail]);
+        // Получаем соединение из пула
+        pool.getConnection((err, connection) => {
+            if (err) {
+                console.error('Ошибка при получении соединения из пула:', err);
+                return res.status(500).send('Ошибка сервера');
+            }
 
-      if (users.length === 0) {
-          return res.status(404).json({ error: 'Пользователь не найден' });
-      }
+            connection.query(selectQuery, [normalizedEmail], async (err, users) => {
+                if (err) {
+                    connection.release();
+                    console.error('Ошибка при запросе пользователя:', err);
+                    return res.status(500).send('Ошибка сервера');
+                }
 
-      const user = users[0];
+                if (users.length === 0) {
+                    connection.release();
+                    return res.status(404).json({ error: 'Пользователь не найден' });
+                }
 
-      // Декодируем токен (предыдущий пароль) для сравнения с паролем из базы данных
-      const decodedToken = decodeURIComponent(token);
-      console.log(decodedToken)
-      console.log(user.password)
+                const user = users[0];
+                // Проверка совпадения пароля и подтверждения пароля
+                if (password !== confirmPassword) {
+                    // Увеличиваем счетчик ошибок сброса пароля
+                    return incrementResetAttempts(user.login, connection, res, 'Пароль и подтверждение пароля не совпадают');
+                }
 
-      // Сравниваем предоставленный токен (предыдущий пароль) с хешированным паролем в базе данных
-      if (String(decodedToken) != String(user.password)) {
-          return res.status(401).json({ error: 'Неправильный токен' });
-      }
+                // Проверка валидности пароля
+                const passwordValidation = validatePassword(password);
+                if (!passwordValidation.success) {
+                    // Увеличиваем счетчик ошибок сброса пароля
+                    return incrementResetAttempts(user.login, connection, res, passwordValidation.errors);
+                }
 
-      // Хешируем новый пароль
-      const hashedNewPassword = await hashPassword(password); // Дожидаемся завершения хеширования пароля
-      console.log(password);
-      console.log(String(hashedNewPassword));
+                // Декодируем токен (предыдущий пароль) для сравнения с паролем из базы данных
+                const decodedToken = decodeURIComponent(token);
 
-      // Обновляем пароль пользователя в базе данных
-      const updateQuery = 'UPDATE newusers SET password = ? WHERE login = ?';
-      await pool.promise().query(updateQuery, [hashedNewPassword, user.login]);
+                // Сравниваем предоставленный токен (предыдущий пароль) с хешированным паролем в базе данных
+                if (String(decodedToken) != String(user.password)) {
+                    connection.release();
+                    return res.status(401).json({ error: 'Неправильный токен' });
+                }
 
-      res.json({ status: 'ok', message: 'Пароль успешно обновлен' });
-  } catch (error) {
-      console.error('Ошибка при сбросе пароля:', error);
-      res.status(500).send('Ошибка сервера');
-  }
+                // Проверяем reset_attempts и last_reset_attempt
+                connection.query(query, [user.login], async (err, resetResults) => {
+                    if (err) {
+                        connection.release();
+                        console.error('Ошибка при запросе reset_attempts и last_reset_attempt:', err);
+                        return res.status(500).send('Ошибка сервера');
+                    }
+
+                    const { reset_attempts, last_reset_attempt } = resetResults[0];
+                    const currentTime = new Date();
+                    const timeDifference = (currentTime - new Date(last_reset_attempt)) / (1000 * 60); // Разница в минутах
+
+                    if (reset_attempts >= 5 && timeDifference < 15) {
+                        connection.release();
+                        return res.status(403).json({ error: 'Превышено количество попыток сброса пароля. Попробуйте позже.' });
+                    }
+
+                    // Хешируем новый пароль
+                    const hashedNewPassword = await hashPassword(password);
+
+                    // Обновляем пароль пользователя в базе данных
+                    connection.query(updatePasswordQuery, [hashedNewPassword, user.login], async (err) => {
+                        if (err) {
+                            connection.release();
+                            console.error('Ошибка при обновлении пароля:', err);
+                            return res.status(500).send('Ошибка сервера');
+                        }
+
+                        // Обновляем количество попыток сброса пароля и время последней попытки
+                        connection.query(updateQuery, [0, user.login], async (err) => {
+                            if (err) {
+                                connection.release();
+                                console.error('Ошибка при обновлении счетчика сброса пароля:', err);
+                                return res.status(500).send('Ошибка сервера');
+                            }
+
+                            // Обновляем количество попыток входа и время последней попытки входа
+                            connection.query(updateNewUsersQuery, [0, user.login], (err) => {
+                                if (err) {
+                                    connection.release();
+                                    console.error('Ошибка при обновлении счетчика входа:', err);
+                                    return res.status(500).send('Ошибка сервера');
+                                }
+
+                                // Освобождаем соединение и возвращаем ответ
+                                connection.release();
+                                res.json({ status: 'ok', message: 'Пароль успешно обновлен' });
+                            });
+                        });
+                    });
+                });
+            });
+        });
+    } catch (error) {
+        console.error('Ошибка при сбросе пароля:', error);
+        res.status(500).send('Ошибка сервера');
+    }
 }
+
+function incrementResetAttempts(login, connection, res, errorMessage) {
+    const query = 'SELECT reset_attempts, last_reset_attempt FROM password_reset_attempts WHERE login = ?';
+    const updateQuery = 'UPDATE password_reset_attempts SET reset_attempts = ?, last_reset_attempt = NOW() WHERE login = ?';
+
+    connection.query(query, [login], (err, resetResults) => {
+        if (err) {
+            connection.release();
+            console.error('Ошибка при запросе reset_attempts и last_reset_attempt:', err);
+            return res.status(500).send('Ошибка сервера');
+        }
+
+        let { reset_attempts, last_reset_attempt } = resetResults[0];
+        const currentTime = new Date();
+        const timeDifference = (currentTime - new Date(last_reset_attempt)) / (1000 * 60); // Разница в минутах
+
+        // Если прошло более 15 минут с последней попытки сброса пароля, сбрасываем счетчик
+        if (timeDifference >= 15) {
+            reset_attempts = 0;
+        }
+
+        // Увеличиваем счетчик попыток сброса пароля
+        reset_attempts += 1;
+
+        // Обновляем счетчик и время последней попытки сброса пароля в базе данных
+        connection.query(updateQuery, [reset_attempts, login], (err) => {
+            connection.release();
+            if (err) {
+                console.error('Ошибка при обновлении счетчика сброса пароля:', err);
+                return res.status(500).send('Ошибка сервера');
+            }
+
+            return res.status(400).json({ error: errorMessage });
+        });
+    });
+}
+
+
 
 // Сброс пароля пользователя
 function resetPass(req, res) {

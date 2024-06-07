@@ -20,11 +20,11 @@ async function sendPasswordResetSMS(req, res) {
         console.log(req.body);
         console.log(phone);
         console.log(login);
-        await client.messages.create({
+       /* await client.messages.create({
             body: `Ваш код для восстановления пароля: ${codeString}`,
             from: twilioPhoneNumber,
             to: phoneString
-        });
+        });*/
         await saveResetCode(login, code);
         res.status(200).send('ok');
     } catch (error) {
@@ -87,8 +87,8 @@ async function checkResetCode(req, res) {
                 const currentTime = new Date();
                 const timeDifference = (currentTime - lastAttemptDate) / (1000 * 60); // Разница в минутах
 
-                if (reset_attempts >= 5 && timeDifference < 10) {
-                    connection.release(); // Освобождаем соединение после выполнения запроса
+                if (reset_attempts >= 5 && timeDifference < 15) { 
+                    connection.release();
                     console.log('Превышено количество попыток. Попробуйте позже.');
                     return res.status(403).json({ error: 'Превышено количество попыток. Попробуйте позже.' });
                 }
@@ -96,7 +96,7 @@ async function checkResetCode(req, res) {
                 if (reset_code === resetCode) {
                     const newResetAttempts = 0; // Сбрасываем счетчик при успешной проверке
                     connection.query(updateQuery, [newResetAttempts, login], (err) => {
-                        connection.release(); // Освобождаем соединение после выполнения запроса
+                        connection.release();
 
                         if (err) {
                             console.error('Ошибка при обновлении попыток сброса пароля:', err);
@@ -107,10 +107,10 @@ async function checkResetCode(req, res) {
                         res.json({ match: true });
                     });
                 } else {
-                    const newResetAttempts = timeDifference >= 10 ? 1 : reset_attempts + 1;
+                    const newResetAttempts = timeDifference >= 15 ? 1 : reset_attempts + 1; 
 
                     connection.query(updateQuery, [newResetAttempts, login], (err) => {
-                        connection.release(); // Освобождаем соединение после выполнения запроса
+                        connection.release();
 
                         if (err) {
                             console.error('Ошибка при обновлении попыток сброса пароля:', err);
@@ -129,6 +129,7 @@ async function checkResetCode(req, res) {
         });
     });
 }
+
 
 
 module.exports = {sendPasswordResetSMS, checkResetCode};
