@@ -231,7 +231,7 @@ const loginUser = async (req, res) => {
                     }
                     return res.status(401).json({ error: 'Неверный пароль' });
                 });
-                return; // Ensure no further execution in case of invalid password
+                return;
             }
 
             // Обнуляем счетчик неудачных попыток входа после успешного входа

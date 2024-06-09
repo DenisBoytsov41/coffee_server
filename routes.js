@@ -13,6 +13,7 @@ const {getPaymentURL} = require('./routes/payment');
 const {sendPasswordResetSMS , checkResetCode} = require('./routes/twilio');
 const {addUserAdmin, updateUserAdmin, deleteAdminUser, checkAdminCredentials,
      updateNewUserAdminInfo, deleteNewUser, checkAdminCredentialsRefreshToken, deleteOrder, updateOrder} = require('./routes/admins');
+const {getProductOfTheDay, getTop3Products7Days, getTop3ProductsMonth, getTop3ProductsDay} = require('./routes/popularProducts')
 
 router.post('/loginAdmin', loginAdmin);
 router.post('/checkUser', loginUser);
@@ -67,5 +68,9 @@ router.get('/getOrderHistoryAdmin', getOrderHistoryAdmin);
 router.get('/getItemPrice', getItemPrice);
 router.post('/deleteOrder', deleteOrder);
 router.post('/updateOrder', updateOrder);
+router.get('/product-of-the-day', getProductOfTheDay);
+router.get('/top-3-products-7-days', getTop3Products7Days);
+router.get('/top-3-products-month', getTop3ProductsMonth);
+router.get('/top-3-products-day', getTop3ProductsDay);
 
 module.exports = router;
