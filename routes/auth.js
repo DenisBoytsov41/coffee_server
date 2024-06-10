@@ -557,17 +557,18 @@ const getUserByRefreshToken = (refreshToken, callback) => {
 };
 
 
-  const getUserByRefreshTokenHandler = (req, res) => {
+const getUserByRefreshTokenHandler = (req, res) => {
     const refreshToken = req.query.refreshToken;
     getUserByRefreshToken(refreshToken, (err, user) => {
-      if (err) {
+        if (err) {
         console.error('Ошибка при получении данных пользователя:', err);
         res.status(500).json({ error: 'Ошибка при получении данных пользователя' });
-      } else {
+        } else {
         res.status(200).json(user);
-      }
+        }
     });
-  };
+};
+
 module.exports = {
     loginAdmin,
     registerUser,

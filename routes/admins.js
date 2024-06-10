@@ -435,8 +435,6 @@ async function updateNewUserDetails(req, res) {
     });
 }
 
-
-
 function deleteNewUser(req, res) {
     const { refreshToken, loginToDelete } = req.body;
 
@@ -780,6 +778,8 @@ const hashPassword = async (password) => {
       throw error;
     }
   };
+
+  
 module.exports = {
     checkAdminCredentials,
     addUserAdmin,
