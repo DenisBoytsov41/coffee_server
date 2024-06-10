@@ -373,7 +373,7 @@ function checkLoginExistence(req, res) {
                     }
                 }
 
-                connection.query(updateResetAttemptsQuery, [resetAttempts + 1, login], (err) => {
+                connection.query(updateResetAttemptsQuery, [resetAttempts, login], (err) => {
                     connection.release();
                     if (err) {
                         console.error('Ошибка при обновлении попыток сброса пароля:', err);
@@ -452,7 +452,7 @@ function sendMailReset(req, res) {
                         }
                     }
 
-                    const newResetAttempts = resetResult.length === 0 ? 1 : resetAttempts + 1;
+                    const newResetAttempts = resetResult.length === 0 ? 1 : resetAttempts;
                     const resetAttemptsQuery = resetResult.length === 0 ? insertQuery : updateQuery;
 
                     connection.query(resetAttemptsQuery, [newResetAttempts, login], (err) => {
