@@ -2,7 +2,6 @@
 const pool = require('../pool');
 const { v4: uuidv4 } = require('uuid');
 
-// Calculate total price of items in the basket
 function countBasket(req, res) {
     if (!req.body.basket || req.body.basket.trim() === '') {
         return res.json({ basket: 0, count: 0 });
@@ -428,7 +427,6 @@ function processPayment(req, res) {
     }
 }
 
-// Get the basket of a user
 function getBasket(req, res) {
     const login = req.body.login.toLowerCase();
 

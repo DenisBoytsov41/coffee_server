@@ -20,11 +20,11 @@ async function sendPasswordResetSMS(req, res) {
         console.log(req.body);
         console.log(phone);
         console.log(login);
-       /* await client.messages.create({
+        await client.messages.create({
             body: `Ваш код для восстановления пароля: ${codeString}`,
             from: twilioPhoneNumber,
             to: phoneString
-        });*/
+        });
         await saveResetCode(login, code);
         res.status(200).send('ok');
     } catch (error) {
