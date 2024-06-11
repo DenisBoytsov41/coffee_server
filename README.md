@@ -32,6 +32,9 @@
     ```
 2. Заполните файл `.env` следующими данными:
     ```
+    TWILIO_ACCOUNT_SID='AC814697fe37f1544fbb250b89bf8d0762'
+    TWILIO_AUTH_TOKEN='d78761549f325784755009a2322bc7af'
+    TWILIO_PHONE_NUMBER='+13613227217'
     ADMIN_LOGIN='admincof'
     ADMIN_PASSWORD='7BXXnjbhTdJYz/89'
     ```
